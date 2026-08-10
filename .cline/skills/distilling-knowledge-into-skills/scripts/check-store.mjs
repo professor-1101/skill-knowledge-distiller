@@ -16,14 +16,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
-import { readJsonl, collectClaimsLocated, parseArgs } from "./lib/jsonl.mjs";
+import { readJsonl, readJsonlWithLines, collectClaimsLocated, parseArgs } from "./lib/jsonl.mjs";
 import { validateClaim, validateRule, DEFAULT_ID_RE, DEFAULT_UNIT_RE } from "./lib/schema.mjs";
 import { resolveRule } from "./lib/evidence.mjs";
 import {
   checkDispositionCoverage,
   checkChunkTiling,
+  checkChunkUnits,
   checkConversionFidelity,
   checkUnitReferences,
+  verifyDigests,
   loadConfig,
 } from "./lib/store.mjs";
 
@@ -76,8 +78,26 @@ function main() {
     }
   }
 
+  // Every artifact is parsed strictly. A corrupt line used to be warned about
+  // and skipped, so a damaged store reported *fewer* rows and still looked
+  // healthy — the certificate shrank and nothing said why.
+  for (const name of ["corpus.jsonl", "rules.jsonl", "dispositions.jsonl", "probes.jsonl",
+                      "frameworks.jsonl", "anti-patterns.jsonl", "resolutions.jsonl",
+                      "gaps.jsonl", "concepts.jsonl", "checkpoints.jsonl"]) {
+    for (const { row, line, error } of readJsonlWithLines(path.join(root, name))) {
+      if (row === null) {
+        errors.push(
+          `${name}:${line}: unparseable JSON (${error}). A skipped line is a row that ` +
+            `silently stops counting, which makes every total below it wrong`
+        );
+      }
+    }
+  }
+
   // --- claims ---------------------------------------------------------
   const located = collectClaimsLocated(root);
+  const chunkUnits = collectChunkUnits(root);
+  opts.chunkUnits = chunkUnits;
   let claimCount = 0;
   for (const { claim, where, error } of located) {
     if (error) {
@@ -119,6 +139,16 @@ function main() {
 
   for (const u of checkUnitReferences(root)) errors.push(`corpus.jsonl: ${u.detail}`);
   for (const f of checkChunkTiling(root)) errors.push(`${f.doc}: ${f.kind} — ${f.detail}`);
+  for (const f of checkChunkUnits(root)) errors.push(`${f.doc}: ${f.detail}`);
+
+  // Verification is opt-in because it re-reads every segment file. Recording a
+  // digest and never checking it is not provenance, so this runs in CI where
+  // the cost does not fall on a commit.
+  if (args.verify) {
+    for (const f of verifyDigests(root)) {
+      errors.push(`${f.doc}${f.page ? ` segment ${f.page}` : ""}: ${f.kind} — ${f.detail}`);
+    }
+  }
   for (const f of checkConversionFidelity(root)) {
     errors.push(`${f.doc} page ${f.page ?? "-"}: ${f.kind} — ${f.detail}`);
   }
@@ -128,6 +158,7 @@ function main() {
     process.stdout.write(`scope             ${scope}\n`);
     process.stdout.write(`profile           ${args.profile}\n`);
     process.stdout.write(`claims            ${claimCount}\n`);
+    process.stdout.write(`digests           ${args.verify ? "verified" : "recorded, not verified (pass --verify)"}\n`);
     process.stdout.write(`rules             ${rules.length}\n`);
   }
 
@@ -153,3 +184,16 @@ function main() {
 }
 
 main();
+
+/** Which unit each chunk belongs to, so a claim's own `unit` can be checked. */
+function collectChunkUnits(root) {
+  const map = new Map();
+  const base = path.join(root, "sources", "converted");
+  if (!fs.existsSync(base)) return map;
+  for (const doc of fs.readdirSync(base).sort()) {
+    for (const c of readJsonl(path.join(base, doc, "chunks.jsonl"))) {
+      if (c.id) map.set(c.id, c.unit || null);
+    }
+  }
+  return map;
+}
