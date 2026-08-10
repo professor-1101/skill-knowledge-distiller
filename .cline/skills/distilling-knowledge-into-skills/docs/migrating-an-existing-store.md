@@ -1,5 +1,12 @@
 # Migrating an existing store
 
+**PDF is no longer an input.** A store built from PDFs keeps every claim it
+has, and the whole refinement half is untouched — but the book behind it can no
+longer be re-ingested, and any segment it needs to re-read must come from an
+EPUB. The regression suite proves the refinement half still behaves exactly as
+it did, so nothing already extracted is invalidated.
+
+
 This methodology is a continuation, not a replacement. A store built under the
 previous Python pipeline adopts it without touching its data.
 

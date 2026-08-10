@@ -132,12 +132,87 @@ afternoon; discovering it after six more books is a month.
 
 ---
 
+## Ten more, found by reviewing this implementation against its own Skill
+
+The first eight above came from the previous project. These came from auditing
+*this* one, and four of them share a shape worth naming: **the Skill stated a
+rule and no code implemented it.** Nothing could have caught that, because
+nothing checked that a rule had an enforcer. `tests/rgate.test.mjs` now does.
+
+10. **The denominator had no producer.** Seven scripts read `corpus.jsonl` and
+    none wrote it, so R5's "transcribed rather than recalled" was satisfied by
+    somebody typing. Fixed by `enumerate.mjs`, which for EPUB is genuine
+    transcription from the book's nav.
+
+11. **The certificate measured a hand-written field.** `certify.mjs` counted
+    `status === "saturated"` and nothing derived status — pitfall #1 recurring
+    inside the implementation built to prevent it. Fixed by `sync-corpus.mjs`.
+
+12. **The saturation rule had no data.** `probes.jsonl` was read by the
+    certificate and written by nothing. Fixed by `probe.mjs`, which also
+    refuses the same probe type twice in a row.
+
+13. **The confidence rubric was documented and absent.** R23 said compute it;
+    nothing did. Fixed by `confidence.mjs`, and the validator now rejects a
+    score that disagrees with the rubric.
+
+14. **Chunks were never linked to units.** `chunk.mjs` wrote `unit: null`
+    unconditionally, so the chain document → unit → claim had a hole exactly
+    where extraction happens.
+
+15. **Chunk ids were positional.** Inserting anything upstream renumbered every
+    later chunk and silently orphaned the claims referencing them — which
+    defeats resumability outright. Ids are now structural.
+
+16. **Digests were recorded and never re-verified.** Edit a segment file and
+    every chunk offset and evidence chain stops matching, with every gate still
+    green. `check-store.mjs --verify` recomputes all four levels.
+
+17. **A corrupt JSONL line was warned about and skipped**, so a damaged store
+    *under-reported* and still looked healthy. Parse failures are now errors
+    across every artifact.
+
+18. **Derived artifacts embedded wall-clock time**, so "rebuild and diff" was
+    never clean and determinism could not be tested at all. The clock is now an
+    input.
+
+19. **`claim.unit` was never checked against its chunk's unit.** Two places to
+    write one fact is one place for them to disagree.
+
+## What is not measured
+
+Stated rather than left silent, because the certificate discipline applies to
+our own work too.
+
+**Trigger and behaviour evals have never been run.** `cline` is not on PATH in
+the environment this was built in, and per `cline-skill-creator` trigger
+measurement is the highest-value check available. The eval set ships unrun:
+
+```bash
+node <creator>/scripts/trigger-eval.mjs --skill . --set evals/trigger-set.json
+node <creator>/scripts/doctor.mjs --deep
+```
+
+**The `.cline/hooks/` contract is unverified.** The CLI reads a hooks directory
+and the stage names are documented, but the discovery contract for a
+non-plugin hooks directory has not been confirmed against a running Cline. The
+git and CI tiers are verified and are what the guarantee rests on.
+
 ## What is verified about the checks themselves
 
-`node scripts/selftest.mjs` — 25 cases, most of them negative, each one either
-a defect above or a constraint the design exists to enforce. It includes the
-cases that must **pass**: an honest declared gap, and an enumerating sentence
-that a naive word-list check would wrongly reject.
+`node tests/run-tests.mjs` — 90 tests in ten categories: unit, negative,
+edge, integrity, determinism, derivation, regression, end-to-end, resume, and
+R-gate coverage. Most are negative, and each is either a defect above or a
+constraint the design exists to enforce.
+
+Cases that must **pass** matter as much: an honest declared gap, an enumerating
+sentence a naive word-list check would wrongly reject, and a 90-character
+segment beside a 5,000-character one, since size alone is never a defect.
+
+The regression group keeps measuring the refinement half against the original
+Python pipeline's output on a real 184-claim store — 153 concepts, 175 gaps,
+179 merge candidates, and the 45 truncated rule names the strict profile
+exists to surface.
 
 The git gate is verified end to end in a throwaway repository: a claim carrying
 a placeholder hash refuses the commit, the same claim with a real digest is

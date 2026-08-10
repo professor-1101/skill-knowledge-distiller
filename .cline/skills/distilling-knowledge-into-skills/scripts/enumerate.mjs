@@ -198,7 +198,8 @@ function main() {
 
   writeJsonl(corpusPath, [...others, ...merged]);
   if (gaps.length) {
-    appendJsonl(path.join(args.root, "gaps.jsonl"), gaps.map((g) => ({ ...g, found_at: nowIso() })));
+    const stamp = args["generated-at"] || nowIso();
+    appendJsonl(path.join(args.root, "gaps.jsonl"), gaps.map((g) => ({ ...g, found_at: stamp })));
   }
   process.stdout.write(`written           ${corpusPath}\n`);
 

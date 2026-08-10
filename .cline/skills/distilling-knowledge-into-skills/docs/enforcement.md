@@ -50,7 +50,10 @@ node scripts/install-ci.mjs --platform gitlab --apply
 ```
 
 Hooks are a courtesy and a per-machine setting nobody else can see. CI runs on
-a clean checkout where the person being checked has no vote. It refuses to
+a clean checkout where the person being checked has no vote, and it carries the
+two things a commit hook must not: the full test suite, and
+`check-store.mjs --verify`, which re-reads every segment file to recompute its
+digest. Recording a digest and never checking it is not provenance. It refuses to
 write a pipeline when the skill is not committed, since CI has no other way to
 reach it.
 
@@ -78,4 +81,4 @@ defaulting to `~/.cline/hooks`) and the stage vocabulary is documented, but the
 exact discovery contract for a non-plugin hooks directory has not been verified
 against a running Cline from this repository. Treat this tier as an addition.
 The guarantee rests on git and CI, which are verified by
-`scripts/selftest.mjs` and by the negative tests in `docs/pitfalls.md`.
+`tests/run-tests.mjs` and by the negative tests in `docs/pitfalls.md`.

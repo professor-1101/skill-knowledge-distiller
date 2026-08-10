@@ -66,21 +66,52 @@ boundary clause carries the claim that established it, because R4 draws
 exceptions from other units and other sources and that link exists nowhere
 else. `cost` shows the declared-unknown union in use.
 
+## Derivation manifest
+
+No field is maintained by hand where it can be computed. For EPUB that is
+nearly all of them, which is the point of the format change.
+
+| Field | Derived from |
+|---|---|
+| segment `kind` | the XHTML: has prose, has media, both, or neither |
+| `nav_title`, `headings`, `anchors`, `media` | the markup |
+| `corpus.jsonl` rows | nav or NCX, plus the spine |
+| `corpus.jsonl` status | claims + probes + prompt hash (`sync-corpus.mjs`) |
+| chunk `unit` | the TOC entry covering its start offset |
+| chunk and unit ids | spine index and ordinal, never a running count |
+| claim `unit` | its chunk, and cross-checked against it |
+| `confidence` | the rubric (`confidence.mjs`) |
+| digests and counts | the bytes, recorded **and** re-verified |
+
+What remains human: the gap `reason`, and the judgements at R2–R7.
+
 ## Chunk and page
 
-```json
-{ "page": 41, "kind": "text | image | mixed", "char_count": 3184,
-  "extractor": "pdftotext", "extractor_version": "…", "text_sha256": "…",
-  "ocr_engine": null, "ocr_confidence": null, "declared_blank": false }
+A *segment* is one spine document — ordered, addressable, digest-bearing. It is
+what a page was, which is why the store keeps the page vocabulary.
 
-{ "id": "source-slug/k0031", "doc": "source-slug",
-  "page_start": 41, "page_end": 43,
+```json
+{ "page": 7, "locator_scheme": "epub-spine", "href": "OEBPS/ch03.xhtml",
+  "spine_index": 6, "linear": true,
+  "kind": "text | image | mixed | empty",
+  "nav_title": "Three: Ends", "char_count": 3184, "text_sha256": "…",
+  "headings": [{ "level": 1, "title": "Three: Ends", "offset": 0 }],
+  "anchors":  [{ "id": "sec2", "offset": 1200 }],
+  "media":    [{ "kind": "image", "src": "fig3.png", "alt": "…", "offset": 900 }],
+  "extractor": "epub-builtin@1.0.0" }
+
+{ "id": "source-slug/s006/k000", "doc": "source-slug",
+  "page": 7, "href": "OEBPS/ch03.xhtml",
+  "locator": "OEBPS/ch03.xhtml@0-6000",
   "char_start": 128400, "char_end": 134400, "chars": 6000,
-  "sha256": "…", "unit": "source-slug/ch07/s02" }
+  "sha256": "…", "unit": "source-slug/s006/u00" }
 ```
 
-Chunk offsets are absolute in one continuous character space across the
-document, so a locator resolves without reconstructing page layout.
+Chunk offsets are absolute in one continuous character space across the book,
+so a locator resolves without reconstructing per-document layout. The id is
+structural: spine index, then ordinal within that document. A positional id
+would renumber everything after an insertion and orphan every claim that
+referenced one.
 
 ## Disposition
 
@@ -129,8 +160,14 @@ corroboration of a fact.
 `.distill.json` at the store root, optional. Absent means defaults apply.
 
 ```json
-{ "id_pattern": "^[a-z0-9-]+/ch\\d{2}/s\\d{2}/c\\d{2}$",
-  "unit_pattern": "^[a-z0-9-]+/ch\\d{2}/s\\d{2}$" }
+{
+  "id_pattern":   "^[a-z0-9-]+/s\\d{3}/u\\d{2}/c\\d{2}$",
+  "unit_pattern": "^[a-z0-9-]+/s\\d{3}/u\\d{2}$",
+  "extractors":   { "primary": "epub-builtin" },
+  "enumerate":    { "depth": 2 },
+  "chunk":        { "target_chars": 6000, "overlap": 0 },
+  "saturation":   { "ratio": 0.05 }
+}
 ```
 
 Only the identifier shapes are configurable, because "chapter" and "section"

@@ -11,12 +11,18 @@ requirement belongs in the table below rather than in prose asking politely.
 
 | Point | Check | Mechanism | On failure |
 |---|---|---|---|
-| Ingest | pages converted equals pages in the original | `ingest.mjs` | blocked; count is the denominator |
-| Ingest | a text page yielding far below the document median | `ingest.mjs` | `conversion-suspect`; extraction refused until declared |
-| Ingest | every page carries a declared `kind` | `ingest.mjs`, `chunk.mjs` | blocked; an undeclared page bakes a possible loss into the denominator |
-| Ingest | an image or mixed page has OCR **or** a gap | `ingest.mjs` | blocked; a skipped page reports as covered |
-| Ingest | an OCR'd page records engine and confidence | `ingest.mjs` | blocked; OCR is a guess and its tier must be visible |
-| Chunk | chunks tile the document exactly once | `chunk.mjs`, `check-store.mjs` | blocked; coverage cannot be measured against a partial denominator |
+| Ingest | the source is an EPUB | `ingest.mjs` | blocked; there is no fallback format |
+| Ingest | every prose text node reached the output | `lib/epub.mjs` | segment refused, naming the offset |
+| Ingest | DRM, missing spine document, dangling idref, corrupt entry | `lib/epub.mjs` | blocked; a partial book that looks whole is the failure |
+| Ingest | an extractor refusal is declared | `lib/store.mjs` | blocked; an undeclared refusal is a segment nobody accounted for |
+| Ingest | `kind` is derived, not written | `lib/store.mjs` | flagged; a hand-written row is not describing the markup |
+| Ingest | image-only and empty segments are flagged | `lib/store.mjs` | flagged; figures are not counted as covered |
+| Ingest | re-ingest does not change the text | `ingest.mjs` | blocked; every excerpt_hash was built on the old text |
+| Enumerate | units transcribed from nav or NCX | `enumerate.mjs` | no navigation is a gap, never an invented structure |
+| Enumerate | a spine document the TOC omits still gets a unit | `enumerate.mjs` | unit added at spine grain, gap recorded |
+| Chunk | chunks tile the document exactly once | `chunk.mjs` | blocked |
+| Chunk | every chunk resolves to a unit | `lib/store.mjs` | blocked; a chunk with no unit is text coverage cannot see |
+| Chunk | ids are structural, not positional | `chunk.mjs` | stable under insertion elsewhere |
 | Claim write | schema conformance, evidence present, locator non-empty, `origin` set | `check-store.mjs`, hooks | write blocked, error returned, worker retries |
 | Claim write | `excerpt_hash` is a digest, not a placeholder | same | same |
 | Claim write | `rule`-type claims carry a real condition, not "always" | same | same |
@@ -35,7 +41,14 @@ requirement belongs in the table below rather than in prose asking politely.
 | Rule construction | every cluster has an anti-pattern | script | targeted probe issued |
 | Compilation | every rule resolves to evidence | `check-store.mjs` | rule rejected |
 | Skill lint | frontmatter, token budget, links, description | `validate-skill.mjs` | build fails |
-| Re-entry | recorded prompt hash matches the prompt on disk | `checkpoint.mjs` | unit returns to pending |
+| Re-entry | recorded prompt hash matches the prompt on disk | `checkpoint.mjs` | target returns to pending, at chunk grain |
+| Status | unit status derived from claims and probes | `sync-corpus.mjs` | corrected; never accepted as written |
+| Saturation | two consecutive probes below the ratio | `sync-corpus.mjs` | continue or stop |
+| Probe | every round logged, including zero-yield | `probe.mjs` | blocked; the same type twice in a row is refused |
+| Confidence | matches the rubric | `lib/schema.mjs`, `confidence.mjs` | rejected; run confidence.mjs |
+| Claim write | `unit` agrees with the chunk that was read | `lib/schema.mjs` | rejected; two places to write one fact is one place to disagree |
+| Any artifact | every JSONL line parses | `check-store.mjs` | error; a skipped line makes every total below it wrong |
+| Integrity | recorded digests and lengths recompute | `check-store.mjs --verify` | error; provenance never rechecked is not provenance |
 | Audit | sampled rules verified against source | model | rule rejected, cluster re-examined |
 | Certificate | all denominators reconcile | `certify.mjs` | certificate withheld |
 
