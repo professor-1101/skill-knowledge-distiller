@@ -158,6 +158,28 @@ export function checkConversionFidelity(root, { floorRatio = 0.05 } = {}) {
             `check exists to catch`,
         });
       }
+      if (p.extraction_error && !p.gap && !p.declared_blank && !p.ocr_engine) {
+        findings.push({
+          doc,
+          page: p.page,
+          kind: "extraction-refused",
+          detail:
+            `page ${p.page}: the extractor refused (${p.extraction_error}) and nothing ` +
+            `has been declared for it. A refusal is the honest outcome, but an ` +
+            `undeclared one still counts as a page nobody accounted for`,
+        });
+      }
+      if (p.cross_check) {
+        findings.push({
+          doc,
+          page: p.page,
+          kind: "extraction-disagreement",
+          detail:
+            `page ${p.page}: two independent extractors disagree (similarity ` +
+            `${p.cross_check.similarity} against ${p.cross_check.extractor}). One of ` +
+            `them is wrong and the character count cannot say which — inspect the page`,
+        });
+      }
       if (p.ocr_engine && !("ocr_confidence" in p)) {
         findings.push({
           doc,
@@ -201,4 +223,28 @@ export function loadConfig(root) {
   } catch (e) {
     throw new Error(`.distill.json is not valid JSON (${e.message}) — an invalid configuration stops the work rather than being worked around`);
   }
+}
+
+/**
+ * The extraction profile of every ingested document.
+ *
+ * The certificate prints these because "how complete is this store" cannot be
+ * answered without "which tool produced the text, and is that tool any good".
+ * An unqualified extractor is not a failure — it is a stated limit on what the
+ * coverage numbers below it are worth.
+ */
+export function extractionProfiles(root) {
+  const base = path.join(root, "sources", "converted");
+  if (!fs.existsSync(base)) return [];
+  const out = [];
+  for (const doc of fs.readdirSync(base).sort()) {
+    const f = path.join(base, doc, "source.json");
+    if (!fs.existsSync(f)) continue;
+    try {
+      out.push(JSON.parse(fs.readFileSync(f, "utf8")));
+    } catch {
+      out.push({ slug: doc, extractor_id: "unreadable source.json", conformance: null });
+    }
+  }
+  return out;
 }

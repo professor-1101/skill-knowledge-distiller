@@ -23,6 +23,8 @@ import { checkChunkTiling, checkConversionFidelity } from "./lib/store.mjs";
 import { writeJsonl, parseArgs } from "./lib/jsonl.mjs";
 import { explainBadDigest, isRealDigest } from "./lib/evidence.mjs";
 import { looksLikeWordList, findHedges, isSelfReference } from "./lib/prose.mjs";
+import { allFixtures } from "./lib/fixtures.mjs";
+import { extractPdf } from "./lib/pdf.mjs";
 
 const args = parseArgs(process.argv.slice(2));
 let passed = 0;
@@ -230,7 +232,50 @@ writeJsonl(path.join(doc, "chunks.jsonl"), [
 ]);
 check("declared overlap passes", checkChunkTiling(tmp).length === 0);
 
+writeJsonl(path.join(doc, "pages.jsonl"), [
+  { page: 1, kind: "text", char_count: 3000 },
+  { page: 2, kind: null, char_count: 0, extraction_error: "Type0 font with no ToUnicode map" },
+  { page: 3, kind: "text", char_count: 3000, cross_check: { extractor: "other@1", similarity: 0.4 } },
+]);
+const ex = checkConversionFidelity(tmp);
+check(
+  "an undeclared extractor refusal is flagged",
+  ex.some((f) => f.kind === "extraction-refused" && f.page === 2)
+);
+check(
+  "two extractors disagreeing on a page is flagged",
+  ex.some((f) => f.kind === "extraction-disagreement" && f.page === 3)
+);
+
 fs.rmSync(tmp, { recursive: true, force: true });
+
+// ---------------------------------------------------------------------------
+// The built-in extractor, against the conformance fixtures
+// ---------------------------------------------------------------------------
+for (const fx of allFixtures()) {
+  let pages = null;
+  let threw = null;
+  try {
+    pages = extractPdf(fx.pdf).pages;
+  } catch (e) {
+    threw = e.message;
+  }
+  if (fx.expectRefusal) {
+    check(`builtin refuses ${fx.name}`, Boolean(threw) && fx.expectRefusal.test(threw), threw || "did not refuse");
+  } else if (fx.expectPageRefusal) {
+    check(
+      `builtin refuses per page on ${fx.name}`,
+      !threw && pages.every((p, i) => !fx.expectPageRefusal[i] || (p.text === null && fx.expectPageRefusal[i].test(p.error || "")))
+    );
+  } else {
+    const norm = (t) => String(t ?? "").replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
+    check(
+      `builtin extracts ${fx.name} exactly`,
+      !threw && pages.length === fx.expect.length && pages.every((p, i) => norm(p.text) === norm(fx.expect[i])),
+      threw || "text did not match"
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 if (failures.length) {
