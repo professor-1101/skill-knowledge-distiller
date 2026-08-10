@@ -18,7 +18,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { readJsonl, collectClaims, nowIso, parseArgs } from "./lib/jsonl.mjs";
-import { checkChunkTiling, checkConversionFidelity } from "./lib/store.mjs";
+import { checkChunkTiling, checkConversionFidelity, extractionProfiles } from "./lib/store.mjs";
 
 const pct = (num, den) => (den ? `${((100.0 * num) / den).toFixed(1)}%` : "n/a");
 const line = (label, value, note = "") =>
@@ -119,7 +119,25 @@ function main() {
   }
   L.push(line("source failures", String(sourceFailed.length)));
   if (fidelity.length) {
+    const by = (k) => fidelity.filter((f) => f.kind === k).length;
     L.push(line("CONVERSION SUSPECT", `${fidelity.length} pages — a clean-looking wrong conversion reports as coverage`));
+    if (by("extraction-disagreement")) {
+      L.push(line("EXTRACTOR CONFLICT", `${by("extraction-disagreement")} pages where two extractors disagree`));
+    }
+    if (by("extraction-refused")) {
+      L.push(line("EXTRACTION REFUSED", `${by("extraction-refused")} pages the extractor could not read, undeclared`));
+    }
+  }
+  for (const prof of extractionProfiles(root)) {
+    L.push(line("extractor", `${prof.slug}: ${prof.extractor_id}`));
+    const c = prof.conformance;
+    if (c && typeof c === "object") {
+      L.push(line("  conformance", `${c.pass}/${c.of} fixtures`));
+      if (c.pass < c.of) L.push(line("  UNQUALIFIED", `${c.of - c.pass} fixtures failed — text quality is not established`));
+    } else {
+      L.push(line("  CONFORMANCE", "NOT MEASURED — run extractor-check.mjs --record"));
+    }
+    L.push(line("  manifest", prof.manifest_sha256 ? prof.manifest_sha256.slice(0, 16) : "absent"));
   }
   if (tiling.length) {
     L.push(line("CHUNK COVERAGE", `${tiling.length} defect(s) — source text belonging to no chunk`));

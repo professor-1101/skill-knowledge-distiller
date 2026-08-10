@@ -24,6 +24,14 @@ exist, which is different from one whose boundary was never looked for.
 **Unless** the source is already text, in which case the gates find nothing and cost nothing
 **Cost** an external tool that must be present, and pages a human has to adjudicate
 
+### R3a — Pin the extractor, because its version is an input to every hash
+**Unless** *(no exception — an unpinned extractor makes the evidence chain environment-scoped without saying so)*
+**Cost** a re-ingest with a better extractor becomes a deliberate re-extraction rather than a quiet upgrade
+
+### R3b — Cross-check the conversion where a second extractor exists
+**Unless** only one extractor is available, in which case record that no second opinion was obtained rather than implying one was
+**Cost** two passes over the document at ingestion time
+
 ### R4 — Make chunks tile the source exactly once
 **Unless** *(no exception — an untiled source has no usable denominator)*
 **Cost** a boundary pass and a check per document
@@ -139,3 +147,18 @@ exist, which is different from one whose boundary was never looked for.
 ### R32 — Cluster by decision, never by document
 **Unless** the source's structure genuinely coincides with a task boundary
 **Cost** evidence mapping must be maintained rather than inferred from structure
+
+## Ordering heuristics
+
+When several rules bear on the same decision, apply them in this sequence.
+
+1. Settle the schema and the denominators before producing volume. Everything
+   reconciles against them, and both are expensive to change late.
+2. Ask whether a script can decide it. If yes, it is not a stage.
+3. Gate the source before measuring coverage over it.
+4. Extract, probe, then stop on the measured ratio — never reorder these, and
+   never let the stopping decision become a judgement.
+5. Under uncertainty prefer the reversible move: keeping two claims costs one
+   redundant rule; a bad merge destroys a distinction silently.
+6. Apply the source-access rule last, as a check on every stage you designed.
+

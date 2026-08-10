@@ -4,20 +4,29 @@ The biggest risk here is counter-intuitive. **A failed conversion is loud and
 harmless. A conversion that succeeds and is wrong reports as coverage.** Half a
 book silently missing looks exactly like half a book that had nothing in it.
 
-So this tier does not implement conversion. It drives a declared external
-extractor, records exactly which one and what it returned, and enforces the
-invariants that make a silent loss impossible to mistake for an empty page.
+The design that answers it is in [extractors.md](extractors.md); the short
+version is four mechanisms, none of them "trust the tool":
 
-Bundling a PDF parser would mean npm dependencies, and a skill directory copied
-into `~/.cline/skills/` never gets an `npm install`. A missing tool is reported;
-nothing is installed on your behalf.
+1. **A built-in extractor** (`lib/pdf.mjs`) that needs nothing installed and
+   **refuses rather than degrades** — an encrypted file, an unimplemented
+   filter or a font it cannot map produces a refusal for that page, never
+   partial text.
+2. **Conformance scoring**, so quality is measured rather than assumed.
+3. **A pinned extraction profile**, because an extractor's *version* changes
+   its text and changed text breaks every `excerpt_hash` computed against it.
+4. **Cross-check** against a second independent extractor where one exists.
 
 ```bash
+node scripts/extractor-check.mjs --record          # qualify what you will use
 node scripts/ingest.mjs --source book.pdf --slug my-book
+node scripts/ingest.mjs --source book.pdf --slug my-book --extractor pdftotext
 node scripts/ingest.mjs --source notes.md --slug my-book --extractor text
 ```
 
-Requires `pdftotext` and `pdfinfo` (poppler-utils) for PDFs.
+Poppler and MuPDF are supported when installed and reported when not; nothing
+is installed on your behalf. Any other tool — a Python script over PyMuPDF, a
+service — qualifies through the custom adapter contract and gets the same
+provenance guarantees.
 
 ## The chain
 
@@ -47,6 +56,19 @@ chunking. A page carrying image content must have either an OCR record or a gap
 confidence. OCR is a guess, and a guess whose uncertainty is not recorded reads
 as fact downstream — the same reasoning that keeps `origin: model` in its own
 confidence-capped tier.
+
+**A refusal must still be declared.** An extractor refusing is the honest
+outcome, but an undeclared refusal is still a page nobody accounted for. It is
+flagged `extraction-refused` until someone says what it is.
+
+**Two extractors disagreeing is a finding.** Where a cross-check runs, pages
+whose text differs materially are flagged `extraction-disagreement`. One of
+them is wrong and no character count can say which.
+
+**Re-ingesting that changes the text is refused, not warned about.** The
+manifest fingerprint covers every page digest, so swapping extractor or version
+is detected — and every `excerpt_hash` in the store was computed against the
+old text.
 
 ## Declaring what a flagged page actually is
 

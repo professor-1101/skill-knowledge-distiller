@@ -68,10 +68,20 @@ rule near its edge, or when ranking two that both apply.
 **Then** put it in a driver over a manifest
 **Because** none of it needs reasoning, and a model used as a loop drifts: dispatch 400 is not performed the way dispatch 3 was
 
-### R3 — Gate the conversion, do not trust it
+### R3 — Gate the conversion, and prefer an extractor that refuses over one that degrades
 **When** a book arrives as a PDF, a scan, or anything but clean text
-**Then** record the original's digest, convert through a declared extractor, and refuse extraction from any page that is thin, undeclared, or image-bearing without OCR or a gap
-**Because** a failed conversion is loud and harmless; one that succeeds and is wrong reports as coverage, and a silently truncated book looks like a thin one
+**Then** record the original's digest, run a qualified extractor, and refuse extraction from any page that is thin, undeclared, refused, or image-bearing without OCR or a gap
+**Because** a wrong conversion reports as coverage, and mojibake passes every downstream check — an extractor that produces it is worse than one that stops
+
+### R3a — Pin the extractor; its version is an input to every hash
+**When** any source is converted
+**Then** record name, version and flags plus a fingerprint over every page digest, and refuse a re-ingest that changes the text
+**Because** a version change re-wraps a line, shifting chunk offsets and breaking every excerpt_hash built on the old text — silently, and only on someone else's machine
+
+### R3b — Cross-check the conversion where a second extractor exists
+**When** more than one qualified extractor is available
+**Then** run both and flag pages where they disagree materially
+**Because** two independent extractors agreeing is real evidence, and this is the one stage that otherwise has no adversary
 
 ### R4 — Make chunks tile the source exactly once
 **When** cutting a document into extraction-sized spans
@@ -229,17 +239,8 @@ rule near its edge, or when ranking two that both apply.
 | R20 preserve vs resolve | Two *sources*, or one with itself? | Genuine cross-source disagreement | One source contradicting itself |
 | R21 unknown vs a value | Does the evidence settle it? | It does not — declare the gap | It does — state it plainly |
 
-Ordering heuristics, in sequence:
-
-1. Settle the schema and the denominators before producing volume. Everything
-   reconciles against them, and both are expensive to change late.
-2. Ask whether a script can decide it. If yes, it is not a stage.
-3. Gate the source before measuring coverage over it.
-4. Extract, probe, then stop on the measured ratio — never reorder these, and
-   never let the stopping decision become a judgement.
-5. Under uncertainty prefer the reversible move: keeping two claims costs one
-   redundant rule; a bad merge destroys a distinction silently.
-6. Apply the source-access rule last, as a check on every stage you designed.
+Six ordering heuristics apply in sequence when several rules bear at once:
+see [docs/rule-boundaries.md](docs/rule-boundaries.md#ordering-heuristics).
 
 ## Contested
 
@@ -252,32 +253,32 @@ Ordering heuristics, in sequence:
 
 ## Failure modes
 
-Pattern (rule violated) → the symptom that reveals it. The full log, with the
-evidence behind each, is [docs/pitfalls.md](docs/pitfalls.md).
+Pattern (rule violated) → the symptom. Full log with the evidence behind each:
+[docs/pitfalls.md](docs/pitfalls.md).
 
-- **Summarisation drift** (R7) → sentences describe what a source says rather
-  than what to do; they read well and decide nothing.
-- **Platitude capture** (R16) → a rule passes every gate, is correctly sourced,
-  and no reader's behaviour changes.
-- **Confident incompleteness** (R5, R30) → a fluent library covering a fraction
-  of the source, with no signal of the remainder. Fluency is not coverage.
-- **Fabrication** (R8, R22) → a rule with no chain, or a chain ending in a
+- **Summarisation drift** (R7) → sentences say what a source says rather than
+  what to do; they read well and decide nothing.
+- **Platitude capture** (R16) → correctly sourced, passes every gate, changes
+  nobody's behaviour.
+- **Confident incompleteness** (R5, R30) → a fluent library over a fraction of
+  the source, with no signal of the remainder. Fluency is not coverage.
+- **Fabrication** (R8, R22) → a rule with no chain, or one ending in a
   placeholder hash that looks populated.
-- **Clean-looking wrong conversion** (R3) → the page count reconciles while the
-  text of a third of the pages was never captured.
-- **Phantom coverage** (R4) → a region of the source belongs to no chunk, so it
-  reports as covered.
-- **Filled-but-empty fields** (R18, R21) → a cost that restates the mechanism,
-  a discriminator that is a word list.
+- **Clean-looking wrong conversion** (R3) → the page count reconciles while a
+  third of the text was never captured.
+- **Environment-scoped provenance** (R3a) → the store verifies on the machine
+  that built it and nowhere else.
+- **Filled-but-empty fields** (R18, R21) → a cost restating the mechanism, a
+  discriminator that is a word list.
 - **Status outrunning artifacts** (R26, R30) → the manifest says saturated
   while the store holds no claims for that unit.
-- **Structural mirroring** (R32) → skills named after chapters.
 - **Source-order bias** (R29) → the first material processed became the
-  ontology, and later contradictions were resolved in its favour.
+  ontology.
 
 ## Running it
 
 ```bash
+node scripts/extractor-check.mjs --record                  # qualify the extractor
 node scripts/ingest.mjs --source book.pdf --slug my-book   # gates the conversion
 node scripts/chunk.mjs --slug my-book                      # tiles it, provably
 node scripts/index.mjs                                     # gaps, by set difference
@@ -299,6 +300,7 @@ summary — including this one.
 - [docs/pipeline-stages.md](docs/pipeline-stages.md) — stage contracts and source-access rules
 - [docs/no-guessing.md](docs/no-guessing.md) — the unknown/gap union and its three validators
 - [docs/ingesting-a-book.md](docs/ingesting-a-book.md) — conversion gates, OCR tier, chunk tiling
+- [docs/extractors.md](docs/extractors.md) — the built-in extractor, conformance, pinning, cross-check
 - [docs/incremental-runs.md](docs/incremental-runs.md) — checkpoints, re-entry, adding material later
 - [docs/graph-layer.md](docs/graph-layer.md) — derived edges, retrieval, why it is a projection
 - [docs/validation-table.md](docs/validation-table.md) — every gate and its failure response
