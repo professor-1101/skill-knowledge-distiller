@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Claim",
+  "description": "One evidenced, decision-bearing statement extracted from one chunk of one source. `condition` and `consequence` are required because they are exactly what a summarising pass cannot populate honestly: a summary describes what the text covers, a claim states what changes under what circumstances.",
+  "type": "object",
+  "required": ["id", "unit", "type", "statement", "condition", "consequence",
+               "defines", "mentions", "evidence", "origin", "confidence",
+               "prompt_version", "extracted_at"],
+  "additionalProperties": true,
+  "properties": {
+    "id": { "type": "string", "description": "<source-slug>/chNN/sNN/cNN by default; the shape is configurable in .distill.json and read by nothing else." },
+    "unit": { "type": "string", "description": "The manifest row this claim belongs to. A claim pointing at a unit the manifest lacks means the denominator and the store disagree." },
+    "chunk": { "type": ["string", "null"], "description": "The chunk actually read. Optional for stores predating the ingestion tier." },
+    "type": { "enum": ["principle", "rule", "pattern", "anti-pattern", "tradeoff", "example", "definition"] },
+    "statement": { "type": "string", "minLength": 20 },
+    "condition": { "type": "string", "minLength": 1, "description": "When this holds. A `rule` claim whose condition is 'always' is a platitude: it passes every gate and changes no decision." },
+    "consequence": { "type": "string", "minLength": 1, "description": "What changes as a result." },
+    "defines": { "type": "array", "items": { "type": "string" } },
+    "mentions": { "type": "array", "items": { "type": "string" },
+      "description": "defines minus mentions is the completeness signal: a concept referenced by some claim and defined by none is either a miss or a forward reference." },
+    "evidence": {
+      "type": "object",
+      "required": ["source", "locator", "support", "excerpt_hash"],
+      "properties": {
+        "source": { "type": "string" },
+        "locator": { "type": "string", "description": "Human-resolvable position in the original." },
+        "support": { "enum": ["direct", "inferred"] },
+        "excerpt_hash": { "type": "string", "pattern": "^(sha256:)?[0-9a-f]{64}$",
+          "description": "A real digest over the exact span read. A placeholder looks populated and proves nothing, which is how an evidence chain breaks invisibly." }
+      }
+    },
+    "origin": { "enum": ["source", "model"], "description": "model-origin material is tagged, confidence-capped and kept in its own tier: repetition of a model inference is not corroboration of a fact." },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "Computed by rubric, never assigned by hand, so it can be recomputed when new corroboration arrives." },
+    "corroboration": { "type": "integer", "minimum": 1 },
+    "prompt_version": { "type": "string", "pattern": "^[a-z-]+@[0-9a-f]{7,64}$",
+      "description": "<stage>@<hash>. Editing the prompt invalidates work produced under the old one, automatically rather than by memory." },
+    "extracted_at": { "type": "string", "format": "date-time" }
+  }
+}
