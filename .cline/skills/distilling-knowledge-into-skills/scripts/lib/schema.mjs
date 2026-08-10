@@ -14,6 +14,7 @@
 
 import { checkEvidence, PROMPT_VERSION_RE, ISO_RE } from "./evidence.mjs";
 import { checkField, isDeclaredUnknown, checkDeclaredUnknown, isSelfReference } from "./prose.mjs";
+import { expectedForClaim, TOLERANCE } from "./confidence.mjs";
 
 export const CLAIM_REQUIRED = [
   "id", "unit", "type", "statement", "condition", "consequence",
@@ -120,6 +121,28 @@ export function validateClaim(claim, where, opts = {}) {
   }
 
   if (strict) {
+    // Confidence is computed, never judged. A hand-set score cannot be
+    // recomputed when new corroboration arrives, so it decays into a number
+    // nobody can defend — and a wrong one reads exactly like a right one.
+    const wanted = expectedForClaim(claim);
+    if (Number.isFinite(conf) && Math.abs(conf - wanted) > TOLERANCE) {
+      push(
+        `confidence ${conf} does not match the rubric, which gives ${wanted} for ` +
+          `origin=${claim.origin} support=${(claim.evidence || {}).support} ` +
+          `corroboration=${claim.corroboration ?? 1}. Run confidence.mjs rather than setting it by hand`
+      );
+    }
+    // The unit a claim names and the unit its chunk belongs to are the same
+    // fact. Two places to write it is one place for them to disagree.
+    if (claim.chunk && opts.chunkUnits && opts.chunkUnits.has(claim.chunk)) {
+      const owner = opts.chunkUnits.get(claim.chunk);
+      if (owner && owner !== claim.unit) {
+        push(
+          `unit '${claim.unit}' contradicts chunk '${claim.chunk}', which belongs to ` +
+            `'${owner}'. The chunk is the one that was read, so it is the one that decides`
+        );
+      }
+    }
     for (const f of ["statement", "condition", "consequence"]) {
       errors.push(...checkField(claim[f], f, { minLength: f === "statement" ? STATEMENT_FLOOR : 0 }));
     }

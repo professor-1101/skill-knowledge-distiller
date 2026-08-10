@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { readJsonl, collectClaims } from "./jsonl.mjs";
+import { sha256 } from "./evidence.mjs";
 
 /**
  * The hard invariant: claims − dispositions = ∅.
@@ -98,15 +99,19 @@ export function checkChunkTiling(root) {
 }
 
 /**
- * Conversion fidelity. The risk named by the ingestion constraint is not a
- * failed conversion — a failure is loud. It is a conversion that succeeds and
- * is wrong, because that reports as coverage.
+ * Conversion fidelity, for a format where it can be checked rather than guessed.
  *
- * Two signals a script can see without understanding the content:
- * a page yielding almost nothing while its neighbours yield plenty, and an
- * image page that was never declared as one.
+ * The PDF-era version compared each page against the document median and
+ * flagged anything far below it. That heuristic existed because a PDF gives no
+ * way to tell a blank page from a dropped one — and it would misfire constantly
+ * on an EPUB, where a title page of 90 characters legitimately sits beside a
+ * chapter of 40,000.
+ *
+ * It is gone. For EPUB the extractor reconciles its output against the source
+ * markup at ingest, so a lost text node is already a refusal. What remains here
+ * are the conditions markup can state and extraction cannot resolve alone.
  */
-export function checkConversionFidelity(root, { floorRatio = 0.05 } = {}) {
+export function checkConversionFidelity(root) {
   const findings = [];
   const base = path.join(root, "sources", "converted");
   if (!fs.existsSync(base)) return findings;
@@ -115,78 +120,196 @@ export function checkConversionFidelity(root, { floorRatio = 0.05 } = {}) {
     const pages = readJsonl(path.join(base, doc, "pages.jsonl"));
     if (!pages.length) continue;
 
-    const textPages = pages.filter((p) => p.kind === "text");
-    const counts = textPages.map((p) => Number(p.char_count) || 0).filter((n) => n > 0);
-    if (counts.length >= 4) {
-      const sorted = [...counts].sort((a, b) => a - b);
-      const median = sorted[Math.floor(sorted.length / 2)];
-      const floor = median * floorRatio;
-      for (const p of textPages) {
-        const n = Number(p.char_count) || 0;
-        if (n < floor) {
-          findings.push({
-            doc,
-            page: p.page,
-            kind: "conversion-suspect",
-            detail:
-              `page ${p.page} yielded ${n} characters against a median of ${median} — ` +
-              `a text page returning almost nothing is a conversion failure, not an ` +
-              `empty page. Extraction from it is refused until it is declared blank ` +
-              `or re-converted with a different extractor`,
-          });
-        }
-      }
-    }
-
     for (const p of pages) {
-      if (!p.kind) {
-        findings.push({
-          doc,
-          page: p.page,
-          kind: "undeclared-page",
-          detail: `page ${p.page} has no 'kind' — text, image and mixed pages carry different guarantees and must be distinguished`,
-        });
-      }
-      if ((p.kind === "image" || p.kind === "mixed") && !p.ocr_engine && !p.gap) {
-        findings.push({
-          doc,
-          page: p.page,
-          kind: "image-not-handled",
-          detail:
-            `page ${p.page} carries image content with neither an OCR record nor a ` +
-            `gap — a skipped page reports as covered, which is the failure this ` +
-            `check exists to catch`,
-        });
-      }
-      if (p.extraction_error && !p.gap && !p.declared_blank && !p.ocr_engine) {
+      if (p.extraction_error && !p.gap) {
         findings.push({
           doc,
           page: p.page,
           kind: "extraction-refused",
           detail:
-            `page ${p.page}: the extractor refused (${p.extraction_error}) and nothing ` +
+            `segment ${p.page}: the extractor refused (${p.extraction_error}) and nothing ` +
             `has been declared for it. A refusal is the honest outcome, but an ` +
-            `undeclared one still counts as a page nobody accounted for`,
+            `undeclared one is still a segment nobody accounted for`,
         });
       }
-      if (p.cross_check) {
+      if (!p.kind && !p.extraction_error) {
         findings.push({
           doc,
           page: p.page,
-          kind: "extraction-disagreement",
+          kind: "underived-kind",
           detail:
-            `page ${p.page}: two independent extractors disagree (similarity ` +
-            `${p.cross_check.similarity} against ${p.cross_check.extractor}). One of ` +
-            `them is wrong and the character count cannot say which — inspect the page`,
+            `segment ${p.page} has no 'kind'. It is derived from the markup, so an ` +
+            `absent value means the row was written by something other than ingest`,
         });
       }
-      if (p.ocr_engine && !("ocr_confidence" in p)) {
+      // A segment with neither prose nor media carries nothing. That is
+      // usually a real front-matter page, but it is never something to assume:
+      // it contributes zero to coverage while counting as a segment.
+      if (p.kind === "empty" && !p.gap) {
         findings.push({
           doc,
           page: p.page,
-          kind: "ocr-unscored",
-          detail: `page ${p.page} was OCR'd without recording a confidence — OCR is a transcription guess and its tier has to be visible`,
+          kind: "empty-segment",
+          detail:
+            `segment ${p.page} (${p.href || "?"}) holds neither prose nor media. ` +
+            `Declare it with --declare gap if that is what the book contains, so it ` +
+            `is a recorded fact rather than an unexplained hole`,
         });
+      }
+      // An image-only segment is a fact about the book, not a defect — but the
+      // words in that figure are not in the store, and that has to be visible.
+      if (p.kind === "image" && !p.gap) {
+        findings.push({
+          doc,
+          page: p.page,
+          kind: "image-only-segment",
+          detail:
+            `segment ${p.page} carries ${(p.media || []).length} figure(s) and no prose. ` +
+            `Whatever those figures say is not in the store; record a gap so the ` +
+            `absence is measured rather than assumed empty`,
+        });
+      }
+    }
+  }
+
+  return findings;
+}
+
+/**
+ * Every chunk must belong to a unit.
+ *
+ * The chain document → unit → claim is what the certificate reconciles against.
+ * A chunk with no unit is a span of the book that extraction can read and
+ * coverage cannot see, and it used to be the default: the chunker wrote `null`
+ * and nothing ever filled it.
+ */
+export function checkChunkUnits(root) {
+  const findings = [];
+  const base = path.join(root, "sources", "converted");
+  if (!fs.existsSync(base)) return findings;
+  const units = new Set(readJsonl(path.join(root, "corpus.jsonl")).map((u) => u.unit).filter(Boolean));
+
+  for (const doc of fs.readdirSync(base).sort()) {
+    const file = path.join(base, doc, "chunks.jsonl");
+    if (!fs.existsSync(file)) continue;
+    for (const c of readJsonl(file)) {
+      if (!c.unit && !c.gap) {
+        findings.push({
+          doc,
+          chunk: c.id,
+          detail: `chunk ${c.id} belongs to no unit — coverage cannot see the text it holds`,
+        });
+      } else if (c.unit && units.size && !units.has(c.unit)) {
+        findings.push({
+          doc,
+          chunk: c.id,
+          detail: `chunk ${c.id} names unit '${c.unit}', which the manifest does not contain`,
+        });
+      }
+    }
+  }
+  return findings;
+}
+
+/**
+ * Recompute every recorded digest and compare.
+ *
+ * Provenance that is written once and never re-checked is recorded, not
+ * verified. Edit a segment file and every chunk offset and downstream
+ * excerpt_hash silently stops matching, with every other gate still green.
+ */
+export function verifyDigests(root) {
+  const findings = [];
+  const base = path.join(root, "sources", "converted");
+  if (!fs.existsSync(base)) return findings;
+
+  for (const doc of fs.readdirSync(base).sort()) {
+    const dir = path.join(base, doc);
+    const pages = readJsonl(path.join(dir, "pages.jsonl"));
+
+    for (const p of pages) {
+      const file = path.join(dir, `page-${String(p.page).padStart(4, "0")}.txt`);
+      if (!fs.existsSync(file)) {
+        findings.push({ doc, page: p.page, kind: "segment-missing", detail: `${path.basename(file)} is gone` });
+        continue;
+      }
+      const text = fs.readFileSync(file, "utf8");
+      if (p.text_sha256 && sha256(Buffer.from(text, "utf8")) !== p.text_sha256) {
+        findings.push({
+          doc,
+          page: p.page,
+          kind: "segment-digest",
+          detail: `${path.basename(file)} no longer matches its recorded digest — it has been edited since ingest`,
+        });
+      }
+      if (Number.isFinite(p.char_count) && text.length !== p.char_count) {
+        findings.push({
+          doc,
+          page: p.page,
+          kind: "segment-length",
+          detail:
+            `${path.basename(file)} is ${text.length} characters, recorded as ${p.char_count}. ` +
+            `Chunk offsets are measured against the recorded value, so tiling is now fiction`,
+        });
+      }
+    }
+
+    const profilePath = path.join(dir, "source.json");
+    if (fs.existsSync(profilePath)) {
+      let profile = null;
+      try {
+        profile = JSON.parse(fs.readFileSync(profilePath, "utf8"));
+      } catch (e) {
+        findings.push({ doc, kind: "profile-unreadable", detail: `source.json is not valid JSON (${e.message})` });
+      }
+      if (profile) {
+        const recomputed = sha256(
+          Buffer.from(
+            pages.map((r) => `${r.page}:${r.href}:${r.char_count}:${r.text_sha256}`).join("\n"),
+            "utf8"
+          )
+        );
+        if (profile.manifest_sha256 && profile.manifest_sha256 !== recomputed) {
+          findings.push({
+            doc,
+            kind: "manifest-digest",
+            detail: "pages.jsonl no longer matches the manifest fingerprint recorded at ingest",
+          });
+        }
+        const original = profile.original ? path.join(root, profile.original) : null;
+        if (original && fs.existsSync(original)) {
+          if (profile.original_sha256 && sha256(fs.readFileSync(original)) !== profile.original_sha256) {
+            findings.push({
+              doc,
+              kind: "original-digest",
+              detail: `${profile.original} is not the file that was ingested — the root of every evidence chain has changed`,
+            });
+          }
+        } else if (original) {
+          findings.push({ doc, kind: "original-missing", detail: `${profile.original} is gone; nothing can be verified against it` });
+        }
+      }
+    }
+
+    const chunkFile = path.join(dir, "chunks.jsonl");
+    if (fs.existsSync(chunkFile)) {
+      const text = pages
+        .map((p) => {
+          const f = path.join(dir, `page-${String(p.page).padStart(4, "0")}.txt`);
+          return fs.existsSync(f) ? fs.readFileSync(f, "utf8") : "";
+        })
+        .join("");
+      for (const c of readJsonl(chunkFile)) {
+        if (!c.sha256 || !Number.isFinite(c.char_start)) continue;
+        const span = text.slice(c.char_start, c.char_end);
+        if (sha256(Buffer.from(span, "utf8")) !== c.sha256) {
+          findings.push({
+            doc,
+            chunk: c.id,
+            kind: "chunk-digest",
+            detail: `chunk ${c.id} no longer hashes to what was recorded — its span has moved or its text has changed`,
+          });
+        }
       }
     }
   }
