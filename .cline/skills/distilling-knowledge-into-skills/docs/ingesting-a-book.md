@@ -1,32 +1,31 @@
 # Ingesting a book
 
-The biggest risk here is counter-intuitive. **A failed conversion is loud and
-harmless. A conversion that succeeds and is wrong reports as coverage.** Half a
-book silently missing looks exactly like half a book that had nothing in it.
+EPUB is the only supported input. The reasoning, and what the extractor
+refuses, is in [epub.md](epub.md); this file is the operational side.
 
-The design that answers it is in [extractors.md](extractors.md); the short
-version is four mechanisms, none of them "trust the tool":
+The risk being managed is counter-intuitive. **A failed conversion is loud and
+harmless. One that succeeds and is wrong reports as coverage.** A silently
+truncated book looks exactly like a thin one.
 
-1. **A built-in extractor** (`lib/pdf.mjs`) that needs nothing installed and
-   **refuses rather than degrades** — an encrypted file, an unimplemented
-   filter or a font it cannot map produces a refusal for that page, never
-   partial text.
-2. **Conformance scoring**, so quality is measured rather than assumed.
+Four mechanisms answer that, and none of them is "trust the tool":
+
+1. **Reconciliation.** Every prose text node in the source must reach the
+   output. A node that did not is a refusal at ingest, naming the offset and
+   the text. This is what a format with real markup makes possible.
+2. **Conformance scoring**, so extraction quality is measured rather than
+   assumed — twelve fixtures, six of them refusals.
 3. **A pinned extraction profile**, because an extractor's *version* changes
    its text and changed text breaks every `excerpt_hash` computed against it.
-4. **Cross-check** against a second independent extractor where one exists.
+4. **Derivation over declaration.** A segment's kind, its title, its headings
+   and its media come from the markup. The only thing a person declares is a
+   gap, and only because "these figures carry the content" is a judgement.
 
 ```bash
-node scripts/extractor-check.mjs --record          # qualify what you will use
-node scripts/ingest.mjs --source book.pdf --slug my-book
-node scripts/ingest.mjs --source book.pdf --slug my-book --extractor pdftotext
-node scripts/ingest.mjs --source notes.md --slug my-book --extractor text
+node scripts/extractor-check.mjs --record            # qualify what you will use
+node scripts/ingest.mjs --source book.epub --slug my-book
+node scripts/enumerate.mjs --slug my-book            # the denominator, transcribed
+node scripts/chunk.mjs --slug my-book                # tiled, unit-linked
 ```
-
-Poppler and MuPDF are supported when installed and reported when not; nothing
-is installed on your behalf. Any other tool — a Python script over PyMuPDF, a
-service — qualifies through the custom adapter contract and gets the same
-provenance guarantees.
 
 ## The chain
 
@@ -40,50 +39,42 @@ modified.
 
 ## The gates, and why each exists
 
-**Page-count reconciliation.** Pages converted must equal pages in the
-original. The count is the denominator every coverage number is measured
-against; without it "fully extracted" cannot mean anything.
-
-**Low-yield detection.** A page returning almost nothing while its neighbours
-return thousands of characters is a conversion failure, not an empty page.
-Flagged `conversion-suspect`, and extraction from it is refused.
-
-**Nothing is skipped silently.** A page with no declared `kind` blocks
-chunking. A page carrying image content must have either an OCR record or a gap
-— because a skipped page reports as covered, which is the whole failure.
-
-**OCR is a tier, not a transcription.** An OCR'd page records its engine and a
-confidence. OCR is a guess, and a guess whose uncertainty is not recorded reads
-as fact downstream — the same reasoning that keeps `origin: model` in its own
-confidence-capped tier.
+**Reconciliation.** Every prose text node reached the output, or the segment is
+refused. Exact, not size-relative — which matters because segment sizes vary
+enormously and legitimately.
 
 **A refusal must still be declared.** An extractor refusing is the honest
-outcome, but an undeclared refusal is still a page nobody accounted for. It is
-flagged `extraction-refused` until someone says what it is.
+outcome, but an undeclared refusal is still a segment nobody accounted for.
+Flagged `extraction-refused` until someone says what it is.
 
-**Two extractors disagreeing is a finding.** Where a cross-check runs, pages
-whose text differs materially are flagged `extraction-disagreement`. One of
-them is wrong and no character count can say which.
+**An image-only segment is flagged, not assumed empty.** Whatever those figures
+say is not in the store. That is a fact about the book, and it has to be
+visible rather than counted as covered.
 
-**Re-ingesting that changes the text is refused, not warned about.** The
-manifest fingerprint covers every page digest, so swapping extractor or version
-is detected — and every `excerpt_hash` in the store was computed against the
-old text.
+**A segment with neither prose nor media is flagged.** Usually real front
+matter; never something to assume.
 
-## Declaring what a flagged page actually is
+**`kind` must be derived.** A row with none was written by something other than
+ingest, which means it is not describing what the markup says.
 
-Only a human can settle "is this blank, a scan, or did the converter drop it?"
-So the declaration is recorded as data rather than inferred:
+**Re-ingest that changes the text is refused, not warned about.** The manifest
+fingerprint covers every segment digest, so swapping extractor or version is
+detected — and every `excerpt_hash` in the store was computed against the old
+text.
+
+## The one thing a human still declares
 
 ```bash
-node scripts/ingest.mjs --slug my-book --declare blank:41
-node scripts/ingest.mjs --slug my-book --declare image:88 --ocr tesseract --ocr-confidence 0.82
-node scripts/ingest.mjs --slug my-book --declare gap:88 \
-  --reason "figure carries the content; no OCR available"
+node scripts/ingest.mjs --slug my-book --declare gap:12 \
+  --reason "the figure carries the content and there is no text alternative"
 ```
 
-A gap declaration requires a reason. A gap that does not say what is missing is
-indistinguishable from a page nobody looked at.
+A reason is required. A gap that does not say what is missing is
+indistinguishable from a segment nobody looked at.
+
+Every other segment property is derived from the markup and is not yours to
+set — the PDF-era flow of declaring pages blank, image or OCR'd is gone with
+the format that needed it.
 
 ## Chunking
 
@@ -95,11 +86,12 @@ Sized so one probe round yields 10-40 claims. Chapter grain put 110 claims in
 one unit in the previous run and hid everything behind a single status flag;
 too fine buys bookkeeping and no recall.
 
-Boundaries prefer a paragraph break, because a chunk ending mid-sentence
-produces claims whose evidence span is a fragment, and a fragment cannot be
-checked against the source by eye.
+Boundaries prefer a heading, then a paragraph break. Chunk ids are structural —
+`slug/s003/k000`, spine index then ordinal — so inserting a chapter elsewhere
+does not renumber them and orphan the claims that referenced them.
 
-**The tiling invariant:** chunks cover the document exactly once, with any
+**Tiling and linkage:** every chunk resolves to the unit whose TOC entry covers
+its start offset, and chunks cover the document exactly once, with any
 overlap declared. Without it, coverage is measured against a denominator that
 silently omits whatever never became a chunk — and that region reports as
 covered rather than as missing.

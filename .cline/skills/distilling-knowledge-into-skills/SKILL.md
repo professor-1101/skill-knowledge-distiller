@@ -1,6 +1,6 @@
 ---
 name: distilling-knowledge-into-skills
-description: Extract expert knowledge from a book into a validated, evidence-backed skill: ingesting and chunking the source, extracting claims that carry their conditions, probing to saturation, consolidating, formalizing rules with their exceptions and costs, then compiling a skill package. Use when work involves a claim store, a corpus or coverage ledger, extraction or probe prompts, a disposition ledger, provenance or excerpt hashes, or a completeness certificate. Use equally when someone describes the symptoms without the vocabulary: "we read the whole book and only got a summary out of it", "how do we know we didn't miss half of it", "nothing in these notes changes a decision", "this rule has no source", "the PDF converted but the diagrams are gone", "can we resume this next month". Load it before any extraction step, not after. Not for authoring an ordinary skill from a conversation, which is cline-skill-creator.
+description: Extract expert knowledge from an EPUB into a validated, evidence-backed skill: ingesting and chunking the book, enumerating units from its own table of contents, extracting claims that carry their conditions, probing to saturation, formalizing rules with their exceptions and costs, then compiling a skill package. Use when work involves a claim store, a corpus or coverage ledger, extraction or probe prompts, a disposition ledger, provenance or excerpt hashes, or a completeness certificate. Use equally when someone describes the symptoms without the vocabulary: "we read the whole book and only got a summary out of it", "how do we know we didn't miss half of it", "nothing in these notes changes a decision", "this rule has no source", "can we resume this next month". EPUB is the only supported input. Load it before any extraction step, not after. Not for authoring an ordinary skill from a conversation, which is cline-skill-creator.
 ---
 
 # Distilling knowledge into skills
@@ -68,20 +68,20 @@ rule near its edge, or when ranking two that both apply.
 **Then** put it in a driver over a manifest
 **Because** none of it needs reasoning, and a model used as a loop drifts: dispatch 400 is not performed the way dispatch 3 was
 
-### R3 — Gate the conversion, and prefer an extractor that refuses over one that degrades
-**When** a book arrives as a PDF, a scan, or anything but clean text
-**Then** record the original's digest, run a qualified extractor, and refuse extraction from any page that is thin, undeclared, refused, or image-bearing without OCR or a gap
-**Because** a wrong conversion reports as coverage, and mojibake passes every downstream check — an extractor that produces it is worse than one that stops
+### R3 — Take EPUB and nothing else, and prefer an extractor that refuses over one that degrades
+**When** a book enters the pipeline
+**Then** require EPUB, record the original's digest, and refuse any segment the extractor could not read and nobody has declared
+**Because** a format that states its reading order, headings and contents can be checked, while one that states none of them can only be guessed at — and a guess that reads well is the failure this pipeline exists to prevent
 
 ### R3a — Pin the extractor; its version is an input to every hash
 **When** any source is converted
 **Then** record name, version and flags plus a fingerprint over every page digest, and refuse a re-ingest that changes the text
 **Because** a version change re-wraps a line, shifting chunk offsets and breaking every excerpt_hash built on the old text — silently, and only on someone else's machine
 
-### R3b — Cross-check the conversion where a second extractor exists
-**When** more than one qualified extractor is available
-**Then** run both and flag pages where they disagree materially
-**Because** two independent extractors agreeing is real evidence, and this is the one stage that otherwise has no adversary
+### R3b — Reconcile the extraction against the source markup
+**When** a segment has been extracted
+**Then** walk the source document and assert every prose text node reached the output, refusing the segment when one did not
+**Because** this is the ingestion stage's adversary, and it is a stronger one than a second tool agreeing: it proves nothing was lost rather than that two guesses matched
 
 ### R4 — Make chunks tile the source exactly once
 **When** cutting a document into extraction-sized spans
@@ -228,28 +228,32 @@ rule near its edge, or when ranking two that both apply.
 **Then** group rules by the task a consumer is performing
 **Because** a source's teaching order is rarely the consumer's task order, and a skill named after a chapter is the book again with extra steps
 
+### R33 — Derive a field, never maintain it by hand
+**When** a value can be computed from the artifacts — a segment's kind, a unit's status, a chunk's owner, a confidence score
+**Then** compute it, and reject a stored value that disagrees with the computation
+**Because** a hand-maintained field drifts from the artifact it describes, and the drift is invisible: the previous store marked chapters saturated while holding zero claims
+
+### R34 — Give identifiers a structural derivation, never a positional one
+**When** naming a unit or a chunk
+**Then** derive the name from where it sits in the source, not from a running count
+**Because** a positional id renumbers everything after an insertion, orphaning every claim that referenced one, and nothing downstream can tell that it happened
+
+### R35 — Verify recorded digests, do not merely record them
+**When** a store is checked in earnest
+**Then** recompute every digest and length and compare against what was written
+**Because** provenance that is never re-checked is recorded rather than verified — edit one segment file and every chunk offset and evidence chain silently stops matching while every other gate stays green
+
 ## Deciding between rules
 
-| Tension | Discriminator | Prefer the first when | Prefer the second when |
-|---|---|---|---|
-| R2 script vs a model stage | Does the step need a judgement? | Selecting, recording, retrying, comparing to a threshold | Merging, elevating, bounding, costing |
-| R12 deny source vs R19 probe | Is a whole cluster missing its anti-pattern? | Any ordinary gap — report it | A cluster has none at all |
-| R14 keep both vs merge | Do the conditions differ? | They differ at all — two rules | Condition and consequence both agree |
-| R16 elevate vs disposition | Can a specific condition survive generalisation? | A condition and consequence remain nameable | Generalising would leave a platitude |
-| R20 preserve vs resolve | Two *sources*, or one with itself? | Genuine cross-source disagreement | One source contradicting itself |
-| R21 unknown vs a value | Does the evidence settle it? | It does not — declare the gap | It does — state it plainly |
-
-Six ordering heuristics apply in sequence when several rules bear at once:
-see [docs/rule-boundaries.md](docs/rule-boundaries.md#ordering-heuristics).
+Six tensions recur, and each has a discriminator that settles it. The table and
+the ordering heuristics are in
+[docs/rule-boundaries.md](docs/rule-boundaries.md#deciding-between-rules).
 
 ## Contested
 
-- **Whether model-prior knowledge is permitted at all.** Forbidding it maximises
-  falsifiability; permitting it in a labelled tier improves coverage of what a
-  source assumes but never states. The choice belongs to the project; the
-  separation does not.
-- **Evidence granularity in reference files** — full claim text, or locator
-  only. Unsettled.
+Two questions this methodology deliberately does not settle — model-prior
+knowledge, and evidence granularity in reference files. Both in
+[docs/rule-boundaries.md](docs/rule-boundaries.md#contested).
 
 ## Failure modes
 
@@ -258,39 +262,41 @@ Pattern (rule violated) → the symptom. Full log with the evidence behind each:
 
 - **Summarisation drift** (R7) → sentences say what a source says rather than
   what to do; they read well and decide nothing.
-- **Platitude capture** (R16) → correctly sourced, passes every gate, changes
-  nobody's behaviour.
 - **Confident incompleteness** (R5, R30) → a fluent library over a fraction of
   the source, with no signal of the remainder. Fluency is not coverage.
 - **Fabrication** (R8, R22) → a rule with no chain, or one ending in a
   placeholder hash that looks populated.
-- **Clean-looking wrong conversion** (R3) → the page count reconciles while a
-  third of the text was never captured.
-- **Environment-scoped provenance** (R3a) → the store verifies on the machine
-  that built it and nowhere else.
+- **Clean-looking wrong conversion** (R3, R3b) → the segment count reconciles
+  while a third of the text was never captured.
 - **Filled-but-empty fields** (R18, R21) → a cost restating the mechanism, a
   discriminator that is a word list.
-- **Status outrunning artifacts** (R26, R30) → the manifest says saturated
-  while the store holds no claims for that unit.
-- **Source-order bias** (R29) → the first material processed became the
-  ontology.
+- **Status outrunning artifacts** (R33) → the manifest says saturated while the
+  store holds no claims for that unit.
+- **Orphaned references** (R34) → an insertion renumbers chunks, and every
+  claim pointing at one now names something else.
+- **Unverified provenance** (R35) → digests recorded at ingest and never
+  rechecked, so an edited segment passes every gate.
 
 ## Running it
 
 ```bash
-node scripts/extractor-check.mjs --record                  # qualify the extractor
-node scripts/ingest.mjs --source book.pdf --slug my-book   # gates the conversion
-node scripts/chunk.mjs --slug my-book                      # tiles it, provably
-node scripts/index.mjs                                     # gaps, by set difference
-node scripts/dedupe.mjs                                    # R1 candidates
+node scripts/extractor-check.mjs --record                    # qualify the extractor
+node scripts/ingest.mjs --source book.epub --slug my-book    # gates the conversion
+node scripts/enumerate.mjs --slug my-book                    # the denominator, from the book's own contents
+node scripts/chunk.mjs --slug my-book                        # tiles it, unit-linked, provably
+node scripts/probe.mjs --record --unit U --type implicit --new-claims 4
+node scripts/sync-corpus.mjs                                 # status and saturation, derived
+node scripts/confidence.mjs                                  # scores, by rubric
+node scripts/index.mjs && node scripts/dedupe.mjs            # gaps, then R1 candidates
 node scripts/graph.mjs && node scripts/context.mjs --for rule/<id> --hops 2
-node scripts/checkpoint.mjs --pending --stage R0           # what is left to do
-node scripts/check-store.mjs --profile strict              # every gate, one command
-node scripts/certify.mjs                                   # counts and shortfalls
-node scripts/install-hooks.mjs --apply                     # make it refuse
+node scripts/checkpoint.mjs --pending --stage R0             # what is left to do
+node scripts/check-store.mjs --profile strict --verify       # every gate, digests included
+node scripts/certify.mjs                                     # counts and shortfalls
+node scripts/install-hooks.mjs --apply                       # make it refuse
 ```
 
-`node scripts/selftest.mjs` proves the gates by what they refuse.
+`node tests/run-tests.mjs` proves the gates by what they refuse, and checks that
+every rule above still has something enforcing it.
 
 Stage prompts are in `templates/prompts/`, one per stage, and they outrank any
 summary — including this one.
@@ -299,8 +305,9 @@ summary — including this one.
 
 - [docs/pipeline-stages.md](docs/pipeline-stages.md) — stage contracts and source-access rules
 - [docs/no-guessing.md](docs/no-guessing.md) — the unknown/gap union and its three validators
-- [docs/ingesting-a-book.md](docs/ingesting-a-book.md) — conversion gates, OCR tier, chunk tiling
-- [docs/extractors.md](docs/extractors.md) — the built-in extractor, conformance, pinning, cross-check
+- [docs/ingesting-a-book.md](docs/ingesting-a-book.md) — conversion gates, reconciliation, chunk tiling
+- [docs/epub.md](docs/epub.md) — why EPUB only, and what the extractor refuses
+- [docs/extractors.md](docs/extractors.md) — the adapter contract, conformance, pinning
 - [docs/incremental-runs.md](docs/incremental-runs.md) — checkpoints, re-entry, adding material later
 - [docs/graph-layer.md](docs/graph-layer.md) — derived edges, retrieval, why it is a projection
 - [docs/validation-table.md](docs/validation-table.md) — every gate and its failure response

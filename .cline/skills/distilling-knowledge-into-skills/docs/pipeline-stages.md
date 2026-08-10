@@ -17,6 +17,10 @@ The order is not negotiable in three places.
 **Ingest precedes everything**, because coverage measured against a source that
 was silently truncated in conversion is measuring the wrong denominator.
 
+**Enumerate precedes chunk**, because a chunk has to resolve to a unit and
+there are none to resolve to before the manifest exists. This is enforced:
+chunking refuses.
+
 **Probing precedes indexing**, because the referenced-but-undefined query is
 only meaningful against a store that has stopped growing.
 
@@ -28,9 +32,9 @@ reaches last, and that is reliably the exception.
 
 | Stage | Performer | Source access | Consumes | Emits |
 |---|---|---|---|---|
-| ingest | script + external extractor | the original file | a book | `sources/converted/<doc>/pages.jsonl` |
-| chunk | script | converted text | pages | `chunks.jsonl`, tiling proof |
-| enumerate | model | yes | the source's table of contents | `corpus.jsonl` — the denominator |
+| ingest | script | the EPUB | a book | `sources/converted/<doc>/pages.jsonl`, `source.json` |
+| chunk | script | converted text | segments + units | `chunks.jsonl`, tiling and linkage proof |
+| enumerate | script | the EPUB's nav | the book's own contents | `corpus.jsonl` — the denominator |
 | R0 extract | model | yes, one chunk | one chunk | `claims/<source>/<unit>.jsonl` |
 | probe | model | yes, one unit | one unit, one probe type | claims (grown), `probes.jsonl` |
 | index | script | n/a | claim store | `concepts.jsonl`, `gaps.jsonl` |
@@ -43,9 +47,14 @@ reaches last, and that is reliably the exception.
 | R7 framework | model | **no** | rules, resolutions | `frameworks.jsonl` |
 | R8 compile | model | **no** | rules, frameworks, anti-patterns | `skills/<name>/` |
 | audit | model | yes, verification only | sampled rules | `reports/audit.md` |
+| sync-corpus | script | n/a | claims, probes, prompt hashes | derived unit status |
+| probe (log) | script | n/a | a probe result | `probes.jsonl` |
+| confidence | script | n/a | claims, rules | scores, by rubric |
 | certify | script | n/a | everything | `reports/certificate.md` |
 
-Six model roles, six deterministic components. Each model role is one versioned
+Five model roles, nine deterministic components. Enumeration moved from the
+model to a script when the input became a format that states its own contents —
+which is the whole argument for EPUB in one line. Each model role is one versioned
 prompt file, byte-stable during a run — that stability is what makes the prompt
 hash a usable invalidation signal.
 

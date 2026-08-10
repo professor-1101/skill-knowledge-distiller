@@ -18,7 +18,7 @@
 // `found_by: indexer` rows are regenerated, so re-running never destroys a
 // finding some other pass recorded.
 //
-//   node index.mjs [--root DIR] [--quiet]
+//   node index.mjs [--root DIR] [--quiet] [--generated-at ISO]
 //
 // Exit 0 always — this reports, it does not gate.
 
@@ -132,7 +132,10 @@ function buildGaps(concepts, claims, corpus, now) {
 function main() {
   const args = parseArgs(process.argv.slice(2), { root: "." });
   const root = args.root;
-  const now = nowIso();
+  // A derived artifact that embeds wall-clock time cannot be rebuilt and
+  // diffed, which makes determinism a claim rather than a property. The clock
+  // is therefore an input.
+  const now = args["generated-at"] || nowIso();
 
   const claims = collectClaims(root);
   const corpus = readJsonl(path.join(root, "corpus.jsonl"));

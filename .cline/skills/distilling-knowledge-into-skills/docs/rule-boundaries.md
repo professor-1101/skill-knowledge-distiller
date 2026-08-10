@@ -148,6 +148,20 @@ exist, which is different from one whose boundary was never looked for.
 **Unless** the source's structure genuinely coincides with a task boundary
 **Cost** evidence mapping must be maintained rather than inferred from structure
 
+## Deciding between rules
+
+| Tension | Discriminator | Prefer the first when | Prefer the second when |
+|---|---|---|---|
+| R2 script vs a model stage | Does the step need a judgement? | Selecting, recording, retrying, comparing to a threshold | Merging, elevating, bounding, costing |
+| R12 deny source vs R19 probe | Is a whole cluster missing its anti-pattern? | Any ordinary gap — report it | A cluster has none at all |
+| R14 keep both vs merge | Do the conditions differ? | They differ at all — two rules | Condition and consequence both agree |
+| R16 elevate vs disposition | Can a specific condition survive generalisation? | A condition and consequence remain nameable | Generalising would leave a platitude |
+| R20 preserve vs resolve | Two *sources*, or one with itself? | Genuine cross-source disagreement | One source contradicting itself |
+| R21 unknown vs a value | Does the evidence settle it? | It does not — declare the gap | It does — state it plainly |
+
+Six ordering heuristics apply in sequence when several rules bear at once:
+see [docs/rule-boundaries.md](docs/rule-boundaries.md#ordering-heuristics).
+
 ## Ordering heuristics
 
 When several rules bear on the same decision, apply them in this sequence.
@@ -162,3 +176,12 @@ When several rules bear on the same decision, apply them in this sequence.
    redundant rule; a bad merge destroys a distinction silently.
 6. Apply the source-access rule last, as a check on every stage you designed.
 
+
+## Contested
+
+- **Whether model-prior knowledge is permitted at all.** Forbidding it maximises
+  falsifiability; permitting it in a labelled tier improves coverage of what a
+  source assumes but never states. The choice belongs to the project; the
+  separation does not.
+- **Evidence granularity in reference files** — full claim text, or locator
+  only. Unsettled.

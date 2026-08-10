@@ -36,7 +36,7 @@ orders of magnitude lower and the results are used.
 
 `graph.mjs` rebuilds it from the JSONL artifacts. Nothing writes to it
 directly. Deleting it loses nothing, and rebuilding it is byte-identical —
-that reproducibility is the test, and it runs in `selftest`-adjacent CI.
+that reproducibility is a test in the determinism group, not a claim.
 
 If the graph ever became authoritative it would be a second store to keep in
 sync, and the two would drift exactly the way status once drifted from claims.

@@ -1,6 +1,29 @@
----
-name: skill-knowledge-distiller
-description: Turn a body of knowledge into a working agent skill. Use when the user wants documentation, a codebase, an API, a transcript, a runbook, a spec or hard-won session experience captured as a reusable SKILL.md - including phrasings like "make this a skill", "turn these docs into a skill", "distill this repo", "capture how we do X", "write a skill for this library", or when a workflow has just been worked out by hand and should not have to be worked out again. Covers scoping the source, deciding what is worth keeping, splitting the body from docs/ and scripts/, writing a description that actually triggers, and checking the result against the format's constraints. Does not run git operations, install skills, or design non-skill artifacts such as rules, hooks and plugins.
+# skill-knowledge-distiller
+
+A Cline skill that turns a book into a validated, evidence-backed skill — with
+every normative statement traceable to a source location, and the
+incompleteness measured rather than hidden.
+
+The skill itself lives in
+[`.cline/skills/distilling-knowledge-into-skills/`](.cline/skills/distilling-knowledge-into-skills/SKILL.md).
+EPUB is the only supported input; [docs/epub.md](.cline/skills/distilling-knowledge-into-skills/docs/epub.md)
+explains why that is a structural choice rather than a convenience.
+
+```bash
+S=.cline/skills/distilling-knowledge-into-skills
+
+node $S/tests/run-tests.mjs                          # 90 tests, ten categories
+node $S/scripts/extractor-check.mjs --record         # qualify the extractor
+node $S/scripts/ingest.mjs --source book.epub --slug my-book
+node $S/scripts/enumerate.mjs --slug my-book
+node $S/scripts/chunk.mjs --slug my-book
+node $S/scripts/check-store.mjs --profile strict --verify
+node $S/scripts/certify.mjs
+```
+
+Stock Node ≥18, zero dependencies — a skill directory copied into
+`~/.cline/skills/` never gets an `npm install`.
+
 ---
 
 # Skill Knowledge Distiller
