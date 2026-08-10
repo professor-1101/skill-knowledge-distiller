@@ -1,0 +1,102 @@
+{
+  "_comment": [
+    "Trigger set for distilling-knowledge-into-skills.",
+    "",
+    "The dominant collision risk here is cline-skill-creator, not an unrelated",
+    "skill: both are about authoring skills, and they share most of their",
+    "vocabulary. So most negatives are queries that ought to fire IT instead —",
+    "scaffolding, frontmatter, a skill that will not trigger, packaging. If the",
+    "eval set cannot tell the two apart, neither score means anything.",
+    "",
+    "The split that actually separates them: this skill is about getting",
+    "knowledge OUT OF A SOURCE with its evidence intact. cline-skill-creator is",
+    "about the SKILL FILE FORMAT and whether it fires.",
+    "",
+    "Run: node <creator>/scripts/trigger-eval.mjs --skill . --set evals/trigger-set.json",
+    "Needs `cline` on PATH and `cline auth`. Not yet executed — see docs/pitfalls.md",
+    "on reporting what was not measured rather than skipping it silently."
+  ],
+  "skill_name": "distilling-knowledge-into-skills",
+  "queries": [
+    {
+      "query": "i've got a 600 page pdf on distributed systems and i want to turn what's in it into something my coding agent can actually use. not a summary — the actual decision rules. where do i even start",
+      "should_trigger": true
+    },
+    {
+      "query": "we ran the extraction over 7 chapters and got 184 claims out. how do i know that's most of what's in there and not like a third of it",
+      "should_trigger": true
+    },
+    {
+      "query": "my claims/ dir has a bunch of jsonl files and corpus.jsonl says two chapters are saturated but there are literally zero claims in them for those units. what went wrong",
+      "should_trigger": true
+    },
+    {
+      "query": "every excerpt_hash in my store is the string 'md-derived-01' instead of an actual digest. is this salvageable or do i start over",
+      "should_trigger": true
+    },
+    {
+      "query": "the notes we pulled out of this book read really well but honestly nothing in them would change what i'd do on a task. what are we doing wrong",
+      "should_trigger": true
+    },
+    {
+      "query": "pdftotext ran fine on my textbook and reported all 480 pages but i'm pretty sure the chapters with lots of diagrams came out basically empty. how do i catch that before extracting",
+      "should_trigger": true
+    },
+    {
+      "query": "i stopped this extraction three weeks ago and i'm on a different model now. can i pick it back up without redoing everything or corrupting what's there",
+      "should_trigger": true
+    },
+    {
+      "query": "chapter 4 says one thing about retry policy and chapter 11 contradicts it. do i pick one or is there a right way to record that",
+      "should_trigger": true
+    },
+    {
+      "query": "need to write a disposition ledger and a completeness certificate for a corpus extraction. what goes in them",
+      "should_trigger": true
+    },
+    {
+      "query": "how do i stop the model inventing a 'cost' field when the book never actually says what the tradeoff costs",
+      "should_trigger": true
+    },
+    {
+      "query": "my skill's name field says data-tools but the folder is called data-helpers and it never shows up. what's wrong",
+      "should_trigger": false
+    },
+    {
+      "query": "wrote a SKILL.md for our deploy runbook and cline just never reaches for it. how do i make the description better",
+      "should_trigger": false
+    },
+    {
+      "query": "how do i scaffold a new cline skill with the evals folder already set up",
+      "should_trigger": false
+    },
+    {
+      "query": "i've got a skill from claude code with references/ and allowed-tools in the frontmatter. what do i change to make it work in cline",
+      "should_trigger": false
+    },
+    {
+      "query": "should this be a skill or a clinerule? it's our commit message convention and it applies to basically every change",
+      "should_trigger": false
+    },
+    {
+      "query": "my SKILL.md is like 9000 tokens and the validator is yelling at me. which bits do i move into docs/",
+      "should_trigger": false
+    },
+    {
+      "query": "can you summarise chapter 3 of this pdf for me, i just need the gist before a meeting in 20 min",
+      "should_trigger": false
+    },
+    {
+      "query": "need to extract all the tables out of this pdf into csv, there's about 40 of them",
+      "should_trigger": false
+    },
+    {
+      "query": "set up a RAG pipeline over our internal docs with chunking and embeddings so support can query it",
+      "should_trigger": false
+    },
+    {
+      "query": "how do i package a couple of skills as a cline plugin and install it from a git repo",
+      "should_trigger": false
+    }
+  ]
+}
