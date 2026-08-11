@@ -6,9 +6,15 @@
 // driven directly with the JSON Cline documents itself as sending.
 //
 // The negative cases are the point. Every one of them is a mistake the first
-// attempt at this tier actually made: SDK stage names used as file names, the
-// wrong directory, no stdin handling, no JSON response, and a `#` comment
-// marker that is valid shell and a syntax error in JavaScript.
+// attempt at this tier actually made: SDK stage names used as file names, no
+// stdin handling, no JSON response, and a `#` comment marker that is valid
+// shell and a syntax error in JavaScript.
+//
+// The directory is the case that changed shape. Cline's references name two
+// project locations — `.clinerules/hooks/` and, in the CLI reference's
+// configuration tree, `.cline/hooks/` — so installing one and calling the
+// other wrong was itself a guess. Both are written; covering only one is what
+// the lint now warns about.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -38,8 +44,8 @@ function workspace({ install = true } = {}) {
 }
 
 /** Drive a hook exactly as Cline documents: JSON in, JSON out, exit code. */
-function invoke(dir, hook, input) {
-  const file = path.join(dir, CONTRACT.projectDir, hook);
+function invoke(dir, hook, input, location = CONTRACT.projectDirs[0]) {
+  const file = path.join(dir, location, hook);
   try {
     const out = execFileSync(file, [], {
       cwd: dir, input: JSON.stringify({ clineVersion: "3.36", hookName: hook, taskId: "t1", workspaceRoots: [dir], ...input }),
@@ -58,16 +64,21 @@ function invoke(dir, hook, input) {
 describe("hooks · the generated set conforms to the documented contract", () => {
   const dir = workspace();
 
-  it("installs into .clinerules/hooks/, which is where Cline looks", () => {
-    for (const name of ["TaskStart", "PreToolUse", "PostToolUse"]) {
-      assert(fs.existsSync(path.join(dir, CONTRACT.projectDir, name)), `${name} is missing`);
+  it("installs into every documented project location, not a guess at one", () => {
+    assert(CONTRACT.projectDirs.length >= 2, "the ambiguity is the reason this test exists");
+    for (const location of CONTRACT.projectDirs) {
+      for (const name of ["TaskStart", "PreToolUse", "PostToolUse"]) {
+        assert(fs.existsSync(path.join(dir, location, name)), `${location}/${name} is missing`);
+      }
     }
   });
 
   it("names files after the hook type with no extension, and makes them executable", () => {
-    for (const name of fs.readdirSync(path.join(dir, CONTRACT.projectDir))) {
-      assert(CONTRACT.types.includes(name), `'${name}' is not a hook type`);
-      assert(fs.statSync(path.join(dir, CONTRACT.projectDir, name)).mode & 0o111, `'${name}' is not executable`);
+    for (const location of CONTRACT.projectDirs) {
+      for (const name of fs.readdirSync(path.join(dir, location))) {
+        assert(CONTRACT.types.includes(name), `'${name}' is not a hook type`);
+        assert(fs.statSync(path.join(dir, location, name)).mode & 0o111, `'${name}' is not executable`);
+      }
     }
   });
 
@@ -77,8 +88,15 @@ describe("hooks · the generated set conforms to the documented contract", () =>
     equal(warnings, []);
   });
 
-  it("writes no .cline/hooks/, which Cline would never read", () => {
-    assert(!fs.existsSync(path.join(dir, ".cline", "hooks")), "that directory is the earlier wrong guess");
+  it("resolves its delegate from either location", () => {
+    // The shim resolves relative to its own directory, and the two locations
+    // sit at different depths from the skill. A path computed for one and
+    // written to both would load in one place and fail in the other.
+    for (const location of CONTRACT.projectDirs) {
+      const r = invoke(dir, "TaskStart", {}, location);
+      equal(r.code, 0, `${location} did not run`);
+      includes(r.json.contextModification, "KNOWLEDGE-DISTILLATION METHODOLOGY ACTIVE");
+    }
   });
 });
 
@@ -134,23 +152,26 @@ describe("hooks · behaviour against the documented JSON", () => {
 
   it("a hook given malformed stdin fails open rather than halting the session", () => {
     const dir = workspace();
-    const file = path.join(dir, CONTRACT.projectDir, "PreToolUse");
+    const file = path.join(dir, CONTRACT.projectDirs[0], "PreToolUse");
     const out = execFileSync(file, [], { cwd: dir, input: "not json at all", encoding: "utf8" });
     equal(JSON.parse(out).cancel, false, "our own bug must not stop the user's work");
   });
 });
 
 describe("hooks · the lint catches every mistake this tier already made", () => {
-  const withHooks = (files, extra = () => {}) => {
+  // Every documented location is populated by default, so a finding in these
+  // tests is about the file being tested and not about coverage.
+  const withHooks = (files, { locations = CONTRACT.projectDirs } = {}) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "distill-lint-"));
     cleanup.push(dir);
-    const hooks = path.join(dir, CONTRACT.projectDir);
-    fs.mkdirSync(hooks, { recursive: true });
-    for (const [name, { body, mode = 0o755 }] of Object.entries(files)) {
-      fs.writeFileSync(path.join(hooks, name), body);
-      fs.chmodSync(path.join(hooks, name), mode);
+    for (const location of locations) {
+      const hooks = path.join(dir, location);
+      fs.mkdirSync(hooks, { recursive: true });
+      for (const [name, { body, mode = 0o755 }] of Object.entries(files)) {
+        fs.writeFileSync(path.join(hooks, name), body);
+        fs.chmodSync(path.join(hooks, name), mode);
+      }
     }
-    extra(dir);
     return dir;
   };
   const good = `#!/usr/bin/env node\nconst i = require("node:fs").readFileSync(0, "utf8");\nprocess.stdout.write(JSON.stringify({ cancel: false }));\n`;
@@ -160,11 +181,21 @@ describe("hooks · the lint catches every mistake this tier already made", () =>
     includes(errors.join("\n"), "SDK plugin *stage* name");
   });
 
-  it("rejects the .cline/hooks/ directory, which is never read", () => {
-    const dir = withHooks({ PreToolUse: { body: good } }, (d) => {
-      fs.mkdirSync(path.join(d, ".cline", "hooks"), { recursive: true });
-    });
-    includes(lintHooks(dir).errors.join("\n"), ".cline/hooks/ exists");
+  it("warns when only one of the documented locations is covered", () => {
+    // Both are official — `customization/hooks` names .clinerules/hooks/, the
+    // CLI reference's configuration tree names .cline/hooks/. Installing one
+    // is a bet on which this Cline reads, so it is a finding, not a pass.
+    const dir = withHooks({ PreToolUse: { body: good } }, { locations: [CONTRACT.projectDirs[0]] });
+    const { errors, warnings } = lintHooks(dir);
+    equal(errors, []);
+    includes(warnings.join("\n"), CONTRACT.projectDirs[1]);
+  });
+
+  it("checks the files in every location, not only the first", () => {
+    const dir = withHooks({ PreToolUse: { body: good } });
+    fs.writeFileSync(path.join(dir, CONTRACT.projectDirs[1], "tool_call_before"), good);
+    fs.chmodSync(path.join(dir, CONTRACT.projectDirs[1], "tool_call_before"), 0o755);
+    includes(lintHooks(dir).errors.join("\n"), "SDK plugin *stage* name");
   });
 
   it("rejects a file that never reads stdin", () => {
@@ -207,12 +238,15 @@ describe("hooks · the lint catches every mistake this tier already made", () =>
 });
 
 describe("hooks · uninstall reverses cleanly", () => {
-  it("removes only what it wrote", () => {
+  it("removes what it wrote, from every location, and nothing else", () => {
     const dir = workspace();
-    fs.writeFileSync(path.join(dir, CONTRACT.projectDir, "TaskComplete"), "#!/bin/sh\nexit 0\n");
+    const foreign = path.join(dir, CONTRACT.projectDirs[0], "TaskComplete");
+    fs.writeFileSync(foreign, "#!/bin/sh\nexit 0\n");
     execFileSync("node", [path.join(dir, SKILL_REL, "scripts", "install-hooks.mjs"), "--root", ".", "--uninstall", "--apply"],
       { cwd: dir, stdio: "ignore" });
-    const left = fs.readdirSync(path.join(dir, CONTRACT.projectDir));
-    equal(left, ["TaskComplete"], "somebody else's hook is not ours to remove");
+    equal(fs.readdirSync(path.join(dir, CONTRACT.projectDirs[0])), ["TaskComplete"],
+      "somebody else's hook is not ours to remove");
+    equal(fs.readdirSync(path.join(dir, CONTRACT.projectDirs[1])), [],
+      "the second location must be cleaned too, or uninstall leaves a live tier behind");
   });
 });

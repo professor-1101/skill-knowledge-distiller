@@ -204,15 +204,27 @@ on.
 
 That check exists because the first attempt at the tier was wrong four ways at
 once, and every one was statically visible: SDK plugin *stage* names
-(`tool_call_before`) used as file names, `.cline/hooks/` instead of
-`.clinerules/hooks/`, no stdin handling, and no JSON response. A fifth
-appeared while fixing it — a `#` comment marker, correct in shell and a syntax
-error in JavaScript, which produced hooks that were installed, executable and
-could not run. The lint now catches that too.
+(`tool_call_before`) used as file names, the wrong hooks directory, no stdin
+handling, and no JSON response. A fifth appeared while fixing it — a `#`
+comment marker, correct in shell and a syntax error in JavaScript, which
+produced hooks that were installed, executable and could not run. The lint now
+catches that too.
+
+**The directory turned out to be a documentation conflict, not a mistake with
+one right answer.** `customization/hooks` documents `.clinerules/hooks/`; the
+CLI reference's configuration tree lists `.cline/hooks/` under "Lifecycle
+hooks" and gives `~/.cline/hooks` as the `--hooks-dir` default. Both are
+official. The first fix followed one source and made the lint *error* on the
+other existing — replacing a guess with a confident guess. Where references
+disagree and the artifact is cheap, write every candidate and let the lint
+insist on it: the installer now populates both, and covering only one is a
+warning. The general lesson is the one this file keeps repeating — a rule
+asserted more firmly than the evidence supports is worse than an
+acknowledged ambiguity, because nothing downstream can tell the difference.
 
 ## What is verified about the checks themselves
 
-`node tests/run-tests.mjs` — 90 tests in ten categories: unit, negative,
+`node tests/run-tests.mjs` — 119 tests in ten categories: unit, negative,
 edge, integrity, determinism, derivation, regression, end-to-end, resume, and
 R-gate coverage. Most are negative, and each is either a defect above or a
 constraint the design exists to enforce.
