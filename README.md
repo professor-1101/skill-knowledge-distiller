@@ -9,16 +9,53 @@ The skill itself lives in
 EPUB is the only supported input; [docs/epub.md](.cline/skills/distilling-knowledge-into-skills/docs/epub.md)
 explains why that is a structural choice rather than a convenience.
 
-```bash
-S=.cline/skills/distilling-knowledge-into-skills
+## Install
 
-node $S/tests/run-tests.mjs                          # 90 tests, ten categories
+```bash
+git clone https://github.com/professor-1101/skill-knowledge-distiller.git
+cd skill-knowledge-distiller
+node install.mjs
+```
+
+Then start a new session — skills are read at startup.
+
+| Command | Does |
+|---|---|
+| `node install.mjs` | install or update for every project |
+| `node install.mjs --project` | install into `./.cline/skills` so a team shares it via git |
+| `node install.mjs --check` | what is installed and what you changed; writes nothing |
+| `node install.mjs --force` | update anyway, discarding local edits |
+| `node install.mjs --uninstall` | remove this skill and nothing else |
+
+An update **refuses when the installed copy has been edited**, naming the
+files, and writes nothing when it refuses. Overwriting somebody's changes is
+not a decision an installer should make on their behalf.
+
+Cline documents two global skill locations and both are official; the installer
+writes the first and tells you the second. Note that **global skills take
+precedence over project ones** — the reverse of rules — so a stale personal
+copy silently overrides the team's. `--project` warns when that is the case.
+
+## Using it
+
+```bash
+S=~/.cline/skills/distilling-knowledge-into-skills
+
+node $S/tests/run-tests.mjs                          # 118 tests, twelve categories
 node $S/scripts/extractor-check.mjs --record         # qualify the extractor
 node $S/scripts/ingest.mjs --source book.epub --slug my-book
-node $S/scripts/enumerate.mjs --slug my-book
+node $S/scripts/enumerate.mjs --slug my-book         # the denominator, from the book's own nav
 node $S/scripts/chunk.mjs --slug my-book
 node $S/scripts/check-store.mjs --profile strict --verify
 node $S/scripts/certify.mjs
+```
+
+Enforcement is separate and opt-in:
+
+```bash
+node $S/scripts/install-hooks.mjs --cline --apply    # git pre-commit + Cline hooks
+node $S/scripts/hooks-lint.mjs                       # check the hooks statically
+node $S/scripts/install-ci.mjs --apply               # the tier --no-verify cannot reach
 ```
 
 Stock Node ≥18, zero dependencies — a skill directory copied into
