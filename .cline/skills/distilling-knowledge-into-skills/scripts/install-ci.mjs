@@ -47,6 +47,10 @@ jobs:
         run: node ${SKILL_REL}/tests/run-tests.mjs
       - name: Extractor conformance
         run: node ${SKILL_REL}/scripts/extractor-check.mjs --record
+      - name: Skill contract
+        # A skill that fails discovery has produced nothing, however good its
+        # contents. Checked here for every compiled package, including this one.
+        run: node ${SKILL_REL}/scripts/skill-lint.mjs
       - name: Cline hook contract, statically
         # This tier cannot be proven by running it — that needs a live Cline.
         # Checking the generated files against the documented contract is what
@@ -70,6 +74,7 @@ check-store:
   script:
     - node ${SKILL_REL}/tests/run-tests.mjs
     - node ${SKILL_REL}/scripts/extractor-check.mjs --record
+    - node ${SKILL_REL}/scripts/skill-lint.mjs
     - node ${SKILL_REL}/scripts/hooks-lint.mjs --root .
     - node ${SKILL_REL}/scripts/check-store.mjs --root . --profile strict --verify
     - node ${SKILL_REL}/scripts/certify.mjs --root . || true

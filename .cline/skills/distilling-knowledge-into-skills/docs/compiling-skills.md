@@ -33,21 +33,33 @@ and costs nothing until someone asks where a rule came from.
 
 Cline's body budget is **under 5k tokens** — tighter than the 500-line / 2000-word
 guidance other formats use, so a skill written against those routinely arrives
-150% over. Measure it, do not estimate it:
+150% over. Measure it:
 
 ```bash
-node <creator>/scripts/validate-skill.mjs <skill-dir>
+node scripts/skill-lint.mjs --path <skill-dir>
 ```
 
-It names the fattest sections, because the fix is nearly always "move these two
-things out".
+`skill-lint.mjs` checks the compiled package against Cline's documented
+contract and ships with this skill, so it works with nothing else installed:
+`SKILL.md` present, frontmatter parseable, `name` matching the directory
+exactly, description within 1024 characters, body within the token budget,
+every bundled file the body links actually present, and the directory sitting
+under a discovery root. Exit 0 clean, 1 warnings, 2 a violation — gate the
+build on 2.
+
+The token figure is an estimate, deliberately biased high: no tokenizer ships
+with a zero-dependency skill, and under-reporting would pass a package that has
+already left the budget. Where `cline-skill-creator` is available, its
+`scripts/validate-skill.mjs` additionally names the fattest sections, which is
+the useful next question once you are over — the fix is nearly always "move
+these two things out".
 
 ## Layout
 
 Cline's directories are `docs/`, `templates/`, `scripts/`. `references/` and
-`assets/` come from other formats and are wrong here — the validator flags
-them, and a skill that triggers and then reads a missing file is worse than one
-that never triggers.
+`assets/` come from other formats and are wrong here. A skill that triggers and
+then reads a missing file is worse than one that never triggers, which is why
+`skill-lint.mjs` treats an unresolvable link as an error rather than a note.
 
 ## Canonical body template
 

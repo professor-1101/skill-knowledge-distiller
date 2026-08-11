@@ -15,6 +15,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, it, assert, equal, includes } from "./harness.mjs";
 
+const NAME = "distilling-knowledge-into-skills";
 const skillRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const repoRoot = path.resolve(skillRoot, "..", "..", "..");
 const INSTALLER = path.join(repoRoot, "install.mjs");
@@ -45,14 +46,14 @@ describe("install · the installer", () => {
   }
 
   it("reports honestly before anything is installed", () => {
-    const target = path.join(tmp(), "skill");
+    const target = path.join(tmp(), NAME);
     const r = run(["--check", "--path", target]);
     equal(r.code, 0);
     includes(r.out, "not installed");
   });
 
   it("installs the skill and writes a manifest", () => {
-    const target = path.join(tmp(), "skill");
+    const target = path.join(tmp(), NAME);
     equal(run(["--path", target]).code, 0);
     assert(fs.existsSync(path.join(target, "SKILL.md")));
     assert(fs.existsSync(path.join(target, "scripts", "check-store.mjs")));
@@ -62,7 +63,7 @@ describe("install · the installer", () => {
   });
 
   it("ships no development scaffolding it does not need", () => {
-    const target = path.join(tmp(), "skill");
+    const target = path.join(tmp(), NAME);
     run(["--path", target]);
     for (const junk of ["node_modules", ".git", "reports"]) {
       assert(!fs.existsSync(path.join(target, junk)), `${junk} has no business in an installed skill`);
@@ -70,7 +71,7 @@ describe("install · the installer", () => {
   });
 
   it("refuses to update over a local edit, and writes nothing when it refuses", () => {
-    const target = path.join(tmp(), "skill");
+    const target = path.join(tmp(), NAME);
     run(["--path", target]);
     const edited = path.join(target, "SKILL.md");
     fs.appendFileSync(edited, "\n# a local change\n");
@@ -84,7 +85,7 @@ describe("install · the installer", () => {
   });
 
   it("names the edits under --check and exits 1", () => {
-    const target = path.join(tmp(), "skill");
+    const target = path.join(tmp(), NAME);
     run(["--path", target]);
     fs.appendFileSync(path.join(target, "docs", "epub.md"), "\nedited\n");
     const r = run(["--check", "--path", target]);
@@ -94,7 +95,7 @@ describe("install · the installer", () => {
   });
 
   it("--check writes nothing at all", () => {
-    const target = path.join(tmp(), "skill");
+    const target = path.join(tmp(), NAME);
     run(["--path", target]);
     const before = fs.readFileSync(path.join(target, ".install-manifest.json"), "utf8");
     run(["--check", "--path", target]);
@@ -102,7 +103,7 @@ describe("install · the installer", () => {
   });
 
   it("--force discards the edit, as asked", () => {
-    const target = path.join(tmp(), "skill");
+    const target = path.join(tmp(), NAME);
     run(["--path", target]);
     fs.appendFileSync(path.join(target, "SKILL.md"), "\n# a local change\n");
     equal(run(["--path", target, "--force"]).code, 0);
@@ -110,7 +111,7 @@ describe("install · the installer", () => {
   });
 
   it("removes a file the previous install wrote and this one does not", () => {
-    const target = path.join(tmp(), "skill");
+    const target = path.join(tmp(), NAME);
     run(["--path", target]);
     const orphan = path.join(target, "docs", "removed-upstream.md");
     fs.writeFileSync(orphan, "stale\n");
@@ -131,9 +132,22 @@ describe("install · the installer", () => {
     assert(fs.existsSync(path.join(proj, ".cline", "skills", "distilling-knowledge-into-skills", "SKILL.md")));
   });
 
+  it("puts the skill in a directory named after it, whatever --path says", () => {
+    // Cline requires `name` to match the directory exactly, so a --path
+    // pointing at some other name would install something that never loads.
+    const parent = tmp();
+    equal(run(["--path", parent]).code, 0);
+    assert(fs.existsSync(path.join(parent, NAME, "SKILL.md")), "--path is the skills directory");
+
+    const explicit = path.join(tmp(), NAME);
+    equal(run(["--path", explicit]).code, 0);
+    assert(fs.existsSync(path.join(explicit, "SKILL.md")), "naming the skill directory works too");
+    assert(!fs.existsSync(path.join(explicit, NAME)), "and is not nested a second time");
+  });
+
   it("uninstalls, and says it touched nothing else", () => {
     const dir = tmp();
-    const target = path.join(dir, "skill");
+    const target = path.join(dir, NAME);
     const neighbour = path.join(dir, "someone-elses-skill");
     fs.mkdirSync(neighbour, { recursive: true });
     fs.writeFileSync(path.join(neighbour, "SKILL.md"), "not ours\n");
@@ -151,7 +165,7 @@ describe("install · the installer", () => {
   });
 
   it("an installed copy carries everything its own suite needs", () => {
-    const target = path.join(tmp(), "skill");
+    const target = path.join(tmp(), NAME);
     run(["--path", target]);
     let out = "";
     try {

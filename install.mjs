@@ -6,6 +6,7 @@
 // cannot bootstrap the thing it installs.
 //
 //   node install.mjs              install or update for every project
+//   node install.mjs --path DIR   install into DIR/distilling-knowledge-into-skills
 //   node install.mjs --project    install into ./.cline/skills so a team shares it via git
 //   node install.mjs --check      what is installed and what you changed; writes nothing
 //   node install.mjs --force      update anyway, discarding local edits
@@ -104,8 +105,21 @@ function localEdits(target, manifest) {
   return changed;
 }
 
+/**
+ * Where the skill goes.
+ *
+ * `--path` is read as the skills directory unless it already ends in the skill
+ * name, in which case it is the skill directory itself. Both readings land in
+ * the same place, and the alternative — honouring a `--path` whose basename is
+ * something else — installs a skill Cline will never load, because the
+ * reference requires `name` to match the directory exactly. `skill-lint.mjs`
+ * catches that; better not to create it.
+ */
 function resolveTarget(args) {
-  if (args.path) return path.resolve(args.path);
+  if (args.path) {
+    const p = path.resolve(args.path);
+    return path.basename(p) === NAME ? p : path.join(p, NAME);
+  }
   if (args.project) return path.resolve(args.root || ".", ".cline", "skills", NAME);
   return path.join(GLOBAL_CANDIDATES[0], NAME);
 }

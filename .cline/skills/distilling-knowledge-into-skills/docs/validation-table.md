@@ -40,7 +40,8 @@ requirement belongs in the table below rather than in prose asking politely.
 | Rule construction | boundary clauses carry `from` provenance | `check-store.mjs` | rejected |
 | Rule construction | every cluster has an anti-pattern | script | targeted probe issued |
 | Compilation | every rule resolves to evidence | `check-store.mjs` | rule rejected |
-| Skill lint | frontmatter, token budget, links, description | `validate-skill.mjs` | build fails |
+| Compilation | the package Cline will actually load: name matches directory, description within 1024, body within budget, every linked file present | `skill-lint.mjs` | build fails |
+| Cline hooks | file-based contract: location, name, executability, stdin, `cancel`, exit 2 | `hooks-lint.mjs` | build fails |
 | Re-entry | recorded prompt hash matches the prompt on disk | `checkpoint.mjs` | target returns to pending, at chunk grain |
 | Status | unit status derived from claims and probes | `sync-corpus.mjs` | corrected; never accepted as written |
 | Saturation | two consecutive probes below the ratio | `sync-corpus.mjs` | continue or stop |
