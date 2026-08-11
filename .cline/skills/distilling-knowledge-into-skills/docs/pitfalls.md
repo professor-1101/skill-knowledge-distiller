@@ -224,10 +224,24 @@ acknowledged ambiguity, because nothing downstream can tell the difference.
 
 ## What is verified about the checks themselves
 
-`node tests/run-tests.mjs` — 119 tests in ten categories: unit, negative,
-edge, integrity, determinism, derivation, regression, end-to-end, resume, and
-R-gate coverage. Most are negative, and each is either a defect above or a
-constraint the design exists to enforce.
+`node tests/run-tests.mjs` — 140 tests in eleven categories: unit, negative,
+edge, integrity, determinism, derivation, regression, end-to-end, resume,
+R-gate coverage, and the two contract lints — hooks and the skill package
+itself. Most are negative, and each is either a defect above or a constraint
+the design exists to enforce.
+
+**A stated check with no implementation is the same defect as a stated rule
+with no enforcer.** `docs/validation-table.md` named a `validate-skill.mjs`
+for the compile stage that existed only in `cline-skill-creator`, one
+directory away from the R-gate test written to catch exactly this. The gate
+scanned `SKILL.md` and never the docs. `skill-lint.mjs` is the missing
+implementation; it ships here, so the check works with nothing else installed.
+
+Writing it immediately found an installer defect nothing else could see:
+`install.mjs --path` honoured whatever directory it was given, and Cline
+requires `name` to match the directory exactly, so any target not named after
+the skill installed something that would never load. `--path` is now read as
+the skills directory.
 
 Cases that must **pass** matter as much: an honest declared gap, an enumerating
 sentence a naive word-list check would wrongly reject, and a 90-character
