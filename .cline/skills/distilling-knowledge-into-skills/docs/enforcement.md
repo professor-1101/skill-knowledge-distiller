@@ -64,7 +64,7 @@ attempt at this tier did, and was wrong on four counts at once.
 
 | | SDK plugin hooks | File-based hooks |
 |---|---|---|
-| Where | `AgentPlugin.hooks` object | `.clinerules/hooks/` · `~/Documents/Cline/Rules/Hooks/` |
+| Where | `AgentPlugin.hooks` object | `.clinerules/hooks/` · `.cline/hooks/` · `~/.cline/hooks/` |
 | Keyed by | *stage* — `tool_call_before`, `session_start` | *hook type* — `PreToolUse`, `TaskStart` |
 | Written in | TypeScript | any executable |
 | Needs a plugin | yes | **no** |
@@ -79,6 +79,13 @@ node scripts/hooks-lint.mjs                      # check them against the contra
 
 The contract, as documented:
 
+- the project location is **either of two**, and Cline's own references
+  disagree: `customization/hooks` documents `.clinerules/hooks/`, while the CLI
+  reference's configuration tree lists `.cline/hooks/` as "Lifecycle hooks" and
+  gives `~/.cline/hooks` as the `--hooks-dir` default. Both are official, the
+  same way the two global skills paths both are. `install-hooks.mjs` writes
+  **both**, and `hooks-lint.mjs` warns when only one is covered — three small
+  generated files are cheaper than a coin flip on which one this install reads
 - the file name is **exactly** the hook type, with no extension, and executable
 - one JSON object arrives on **stdin**: `clineVersion`, `hookName`, `timestamp`,
   `taskId`, `workspaceRoots`, `userId`, plus per-hook fields
@@ -103,11 +110,17 @@ analysis: `hooks-lint.mjs` checks location, naming, executability, that the
 file parses in the language its shebang declares, that it reads stdin, that it
 emits `cancel`, and that exit 2 appears only where it means something.
 
-Twenty-one tests cover it, and the negative cases are all mistakes this tier
-actually made: an SDK stage name used as a file name, `.cline/hooks/` as the
-directory, no stdin handling, no JSON response, and a `#` comment marker that
-is valid shell and a syntax error in JavaScript — which produced hooks that
-were installed, executable, and could not run.
+Twenty-three tests cover it, and the negative cases are all mistakes this tier
+actually made: an SDK stage name used as a file name, no stdin handling, no
+JSON response, and a `#` comment marker that is valid shell and a syntax error
+in JavaScript — which produced hooks that were installed, executable, and
+could not run. Installing only one of the two documented directories is the
+fifth, and it is now a warning rather than a silent bet.
+
+The shim resolves its delegate relative to its own directory, and the two
+locations sit at different depths from the skill, so a test drives `TaskStart`
+from each in turn: a path computed for one and copied to the other would load
+in one place and fail in the other.
 
 The handlers are also driven directly with the JSON Cline documents itself as
 sending, which proves the round trip without proving that Cline invokes them.

@@ -9,7 +9,7 @@
 // So enforcement is layered, and the layers run the same `check-store.mjs`:
 //
 //   git pre-commit   every surface, no Cline involvement    <- installed here
-//   Cline hooks      CLI and SDK, via --hooks-dir           <- installed here
+//   Cline hooks      every documented hooks directory        <- installed here
 //   the skill body   advisory, everywhere                   <- always present
 //
 // The git tier is the load-bearing one and is not a fallback. Cline can write
@@ -21,7 +21,7 @@
 //
 //   node install-hooks.mjs                 # preview; writes nothing
 //   node install-hooks.mjs --apply
-//   node install-hooks.mjs --cline --apply # also write .cline/hooks/
+//   node install-hooks.mjs --cline --apply # also write the Cline hook directories
 //   node install-hooks.mjs --uninstall --apply
 //
 // Exit 0 clean, 2 on refusal.
@@ -140,7 +140,7 @@ function installGit(root, apply) {
 // an `AgentPlugin.hooks` object and needs a plugin; this one is executables
 // discovered by name, and does not.
 //
-//   location  .clinerules/hooks/ (project) · ~/Documents/Cline/Rules/Hooks/ (global)
+//   location  .clinerules/hooks/ and .cline/hooks/ (project) · ~/.cline/hooks/ (global)
 //   name      exactly the hook type, no extension, executable
 //   stdin     one JSON object with clineVersion, hookName, taskId,
 //             workspaceRoots, and per-hook fields
@@ -149,7 +149,10 @@ function installGit(root, apply) {
 //
 // `scripts/hooks-lint.mjs` checks the generated files against that contract
 // statically, because it cannot be checked by running Cline from here.
-const CLINE_HOOK_DIR = path.join(".clinerules", "hooks");
+// Both are documented and official: `customization/hooks` names
+// `.clinerules/hooks/`, the CLI reference's config tree names `.cline/hooks/`.
+// Writing both costs three small files and removes the guess.
+const CLINE_HOOK_DIRS = [path.join(".clinerules", "hooks"), path.join(".cline", "hooks")];
 const CLINE_HOOKS = ["TaskStart", "PreToolUse", "PostToolUse"];
 
 /**
@@ -182,21 +185,23 @@ import(pathToFileURL(target).href)
 }
 
 function installCline(root, apply) {
-  const dir = path.join(root, CLINE_HOOK_DIR);
-  const relToSkill = path.relative(dir, path.join(root, SKILL_REL)) || ".";
-  for (const name of CLINE_HOOKS) {
-    const file = path.join(dir, name);
-    process.stdout.write(`  ${apply ? "write" : "would write"}  ${file}\n`);
-    if (apply) {
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(file, clineHookBody(name, relToSkill), "utf8");
-      fs.chmodSync(file, 0o755);
+  for (const rel of CLINE_HOOK_DIRS) {
+    const dir = path.join(root, rel);
+    const relToSkill = path.relative(dir, path.join(root, SKILL_REL)) || ".";
+    for (const name of CLINE_HOOKS) {
+      const file = path.join(dir, name);
+      process.stdout.write(`  ${apply ? "write" : "would write"}  ${file}\n`);
+      if (apply) {
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(file, clineHookBody(name, relToSkill), "utf8");
+        fs.chmodSync(file, 0o755);
+      }
     }
   }
   process.stdout.write(
-    `\n  Discovered automatically from ${CLINE_HOOK_DIR}/ — no plugin required, so\n` +
-      `  this tier reaches the IDE extensions too. Check the generated files against\n` +
-      `  the documented contract with:\n` +
+    `\n  Both documented locations are covered — no plugin required, so this tier\n` +
+      `  reaches the IDE extensions too. Check the generated files against the\n` +
+      `  documented contract with:\n` +
       `    node ${SKILL_REL}/scripts/hooks-lint.mjs\n`
   );
   return 0;
@@ -220,12 +225,13 @@ function uninstall(root, apply) {
       process.stdout.write("  no pre-commit hook of ours to remove\n");
     }
   }
-  const dir = path.join(root, CLINE_HOOK_DIR);
-  for (const name of CLINE_HOOKS) {
-    const file = path.join(dir, name);
-    if (fs.existsSync(file) && fs.readFileSync(file, "utf8").includes(MARKER_TEXT)) {
-      process.stdout.write(`  ${apply ? "remove" : "would remove"}  ${file}\n`);
-      if (apply) fs.unlinkSync(file);
+  for (const rel of CLINE_HOOK_DIRS) {
+    for (const name of CLINE_HOOKS) {
+      const file = path.join(root, rel, name);
+      if (fs.existsSync(file) && fs.readFileSync(file, "utf8").includes(MARKER_TEXT)) {
+        process.stdout.write(`  ${apply ? "remove" : "would remove"}  ${file}\n`);
+        if (apply) fs.unlinkSync(file);
+      }
     }
   }
   return rc;
@@ -242,7 +248,7 @@ function main() {
   else {
     rc = installGit(args.root, apply) || rc;
     if (args.cline) rc = installCline(args.root, apply) || rc;
-    else process.stdout.write(`  (pass --cline to also write ${CLINE_HOOK_DIR}/)\n`);
+    else process.stdout.write(`  (pass --cline to also write ${CLINE_HOOK_DIRS.join(" and ")})\n`);
   }
 
   if (!apply) process.stdout.write("\nNothing was written.\n");

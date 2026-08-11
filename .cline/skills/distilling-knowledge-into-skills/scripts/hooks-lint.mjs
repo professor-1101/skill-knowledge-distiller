@@ -33,8 +33,18 @@ import { parseArgs } from "./lib/jsonl.mjs";
  * file-based system below needs no plugin, which is why it is the one used.
  */
 export const CONTRACT = {
-  projectDir: path.join(".clinerules", "hooks"),
-  globalDir: path.join("Documents", "Cline", "Rules", "Hooks"),
+  // Cline's own references name different locations, and both are official:
+  // `customization/hooks` documents `.clinerules/hooks/`, while the CLI
+  // reference's configuration tree lists `.cline/hooks/` as "Lifecycle hooks"
+  // and gives `~/.cline/hooks` as the `--hooks-dir` default. This is the same
+  // ambiguity the docs already carry for global skills. Rather than pick one
+  // and be wrong on half the installs, every candidate is written and every
+  // candidate is checked.
+  projectDirs: [path.join(".clinerules", "hooks"), path.join(".cline", "hooks")],
+  globalDirs: [
+    path.join("Documents", "Cline", "Rules", "Hooks"),
+    path.join(".cline", "hooks"),
+  ],
   // Named after the hook *type*, exactly, with no extension.
   types: [
     "PreToolUse", "PostToolUse", "UserPromptSubmit",
@@ -86,26 +96,23 @@ export function lintHooks(root) {
   const warnings = [];
   const notes = [];
 
-  const dir = path.join(root, CONTRACT.projectDir);
-  const legacy = path.join(root, ".cline", "hooks");
+  const dirs = CONTRACT.projectDirs.map((d) => path.join(root, d)).filter((d) => fs.existsSync(d));
 
-  if (fs.existsSync(legacy)) {
-    errors.push(
-      `.cline/hooks/ exists. Cline discovers file-based hooks in ${CONTRACT.projectDir}/ ` +
-        `and ~/${CONTRACT.globalDir}/, so anything here is never read — a gate that ` +
-        `is never invoked is worse than no gate, because it looks installed`
+  if (!dirs.length) {
+    notes.push(
+      `none of ${CONTRACT.projectDirs.join(", ")} exist — the Cline tier is not ` +
+        `installed (the git tier is separate and unaffected)`
     );
-  }
-
-  if (!fs.existsSync(dir)) {
-    notes.push(`no ${CONTRACT.projectDir}/ — the Cline tier is not installed (the git tier is separate)`);
     return { errors, warnings, notes, checked: 0 };
   }
 
-  const entries = fs.readdirSync(dir).filter((f) => !f.startsWith("."));
+  const entries = [];
+  for (const d of dirs) {
+    for (const f of fs.readdirSync(d).filter((x) => !x.startsWith("."))) entries.push([d, f]);
+  }
   let checked = 0;
 
-  for (const name of entries) {
+  for (const [dir, name] of entries) {
     const file = path.join(dir, name);
     const stat = fs.statSync(file);
     if (stat.isDirectory()) continue;
@@ -196,17 +203,30 @@ export function lintHooks(root) {
   }
 
   // --- coverage -----------------------------------------------------------
-  const present = entries.filter((f) => CONTRACT.types.includes(f));
+  const present = [...new Set(entries.map(([, f]) => f))].filter((f) => CONTRACT.types.includes(f));
   if (!present.includes("PreToolUse")) {
     warnings.push("no PreToolUse hook — nothing refuses a write into the claim store at the Cline tier");
   }
-  const globalDir = path.join(os.homedir(), CONTRACT.globalDir);
-  if (fs.existsSync(globalDir)) {
+
+  // Installing only one of the documented locations is a coin flip on which
+  // one this Cline reads.
+  const covered = CONTRACT.projectDirs.filter((d) => fs.existsSync(path.join(root, d)));
+  if (covered.length < CONTRACT.projectDirs.length) {
+    const missing = CONTRACT.projectDirs.filter((d) => !covered.includes(d));
+    warnings.push(
+      `hooks are in ${covered.join(", ")} but not ${missing.join(", ")}. Cline's own ` +
+        `references name both, so covering one is a bet on which the install reads`
+    );
+  }
+
+  for (const g of CONTRACT.globalDirs) {
+    const globalDir = path.join(os.homedir(), g);
+    if (!fs.existsSync(globalDir)) continue;
     const shadowed = fs.readdirSync(globalDir).filter((f) => present.includes(f));
     if (shadowed.length) {
       notes.push(
-        `${shadowed.join(", ")} also exist in ~/${CONTRACT.globalDir}/. Which copy wins is ` +
-          `worth confirming before relying on either`
+        `${shadowed.join(", ")} also exist in ~/${g}/. Which copy wins is worth ` +
+          `confirming before relying on either`
       );
     }
   }
@@ -220,7 +240,7 @@ function main() {
 
   if (!args.quiet) {
     process.stdout.write(`contract          Cline file-based hooks\n`);
-    process.stdout.write(`location          ${CONTRACT.projectDir}/\n`);
+    process.stdout.write(`locations         ${CONTRACT.projectDirs.join("  ")}\n`);
     process.stdout.write(`hooks checked     ${checked}\n`);
   }
   for (const n of notes) process.stdout.write(`NOTE   ${n}\n`);
