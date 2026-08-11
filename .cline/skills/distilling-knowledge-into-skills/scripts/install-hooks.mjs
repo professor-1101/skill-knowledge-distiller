@@ -31,7 +31,13 @@ import path from "node:path";
 import { execSync } from "node:child_process";
 import { parseArgs } from "./lib/jsonl.mjs";
 
-const MARKER = "# distilling-knowledge-into-skills";
+// The marker identifies files we generated, so uninstall never removes
+// somebody else's hook. It is matched on the bare text because the comment
+// syntax differs by language — `#` is a comment in shell and a syntax error
+// in JavaScript, which is exactly the bug this constant used to cause.
+const MARKER_TEXT = "distilling-knowledge-into-skills";
+const MARKER = `# ${MARKER_TEXT}`;
+const JS_MARKER = `// ${MARKER_TEXT}`;
 const SKILL_REL = ".cline/skills/distilling-knowledge-into-skills";
 
 function gitDir(root) {
@@ -125,51 +131,73 @@ function installGit(root, apply) {
   return 0;
 }
 
-// The Cline CLI reads additional hooks from a directory (`--hooks-dir`,
-// defaulting to ~/.cline/hooks). The stage vocabulary is documented, but the
-// exact discovery contract for a non-plugin hooks directory is not something
-// this repository has verified against a running Cline — so these are written
-// as plain executables named for their stage, and the git tier is what the
-// guarantee actually rests on.
-const CLINE_HOOKS = {
-  session_start: `#!/bin/sh
-${MARKER}
-# Announce the methodology at session start, and record which SKILL.md was
-# loaded. The gate below binds to that hash: editing the methodology without
-# re-loading it leaves the token stale and the gate closed — the same
-# invalidation-by-hash rule the pipeline applies to prompt versions.
-node "${SKILL_REL}/scripts/activate.mjs" --root . || true
-`,
-  tool_call_before: `#!/bin/sh
-${MARKER}
-# Refuse a write into the claim store while the methodology is not active.
-node "${SKILL_REL}/scripts/activate.mjs" --root . --gate || exit 2
-`,
-  tool_call_after: `#!/bin/sh
-${MARKER}
-# Validate what was just written and hand the rejections back to the model.
-# Only exit 2 (needs attention) blocks; warnings are reported and allowed.
-node "${SKILL_REL}/scripts/check-store.mjs" --root . --profile strict --quiet
-[ $? -ge 2 ] && exit 2
-exit 0
-`,
-};
+// Cline's *file-based* hook system, which is the one that needs no plugin.
+//
+// The earlier version of this file guessed, and guessed wrong on four counts:
+// it wrote SDK stage names (`tool_call_before`) as file names, into the wrong
+// directory (`.cline/hooks/`), with no stdin handling and no JSON response.
+// Those are two different systems. The SDK one is TypeScript handlers inside
+// an `AgentPlugin.hooks` object and needs a plugin; this one is executables
+// discovered by name, and does not.
+//
+//   location  .clinerules/hooks/ (project) · ~/Documents/Cline/Rules/Hooks/ (global)
+//   name      exactly the hook type, no extension, executable
+//   stdin     one JSON object with clineVersion, hookName, taskId,
+//             workspaceRoots, and per-hook fields
+//   stdout    one JSON object: { cancel, errorMessage, contextModification }
+//   exit 2    PreToolUse only — blocks the call, stderr goes to the model
+//
+// `scripts/hooks-lint.mjs` checks the generated files against that contract
+// statically, because it cannot be checked by running Cline from here.
+const CLINE_HOOK_DIR = path.join(".clinerules", "hooks");
+const CLINE_HOOKS = ["TaskStart", "PreToolUse", "PostToolUse"];
+
+/**
+ * The generated hook is a shim. All the logic lives in `cline-hook.mjs`, which
+ * calls the same `activate.mjs` and `check-store.mjs` the git tier runs — one
+ * implementation of every rule, three ways to invoke it.
+ *
+ * It resolves its target relative to its own location rather than the working
+ * directory, because a hook is not guaranteed to be run from the workspace
+ * root. Written as CommonJS: a file with no extension is CJS to Node, and a
+ * dynamic import reaches the ESM library from there.
+ */
+function clineHookBody(hookName, relToSkill) {
+  return `#!/usr/bin/env node
+${JS_MARKER}
+// ${hookName} — generated. Edit scripts/cline-hook.mjs, not this file.
+const path = require("node:path");
+const { pathToFileURL } = require("node:url");
+const target = path.resolve(__dirname, ${JSON.stringify(relToSkill)}, "scripts", "cline-hook.mjs");
+import(pathToFileURL(target).href)
+  .then((m) => m.run(${JSON.stringify(hookName)}))
+  .catch((e) => {
+    // Fail open: a hook that refuses because it could not load itself halts
+    // the pipeline for a reason unrelated to the work. The git tier still
+    // catches whatever this misses.
+    process.stdout.write(JSON.stringify({ cancel: false }));
+    process.stderr.write("distill hook could not load: " + e.message + "\\n");
+  });
+`;
+}
 
 function installCline(root, apply) {
-  const dir = path.join(root, ".cline", "hooks");
-  for (const [name, body] of Object.entries(CLINE_HOOKS)) {
+  const dir = path.join(root, CLINE_HOOK_DIR);
+  const relToSkill = path.relative(dir, path.join(root, SKILL_REL)) || ".";
+  for (const name of CLINE_HOOKS) {
     const file = path.join(dir, name);
     process.stdout.write(`  ${apply ? "write" : "would write"}  ${file}\n`);
     if (apply) {
       fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(file, body, "utf8");
+      fs.writeFileSync(file, clineHookBody(name, relToSkill), "utf8");
       fs.chmodSync(file, 0o755);
     }
   }
   process.stdout.write(
-    `\n  Cline reads these with: cline --hooks-dir ./.cline/hooks\n` +
-      `  Unverified against a running Cline in this repository. The git hook is\n` +
-      `  what the guarantee rests on; this tier is an addition, not a substitute.\n`
+    `\n  Discovered automatically from ${CLINE_HOOK_DIR}/ — no plugin required, so\n` +
+      `  this tier reaches the IDE extensions too. Check the generated files against\n` +
+      `  the documented contract with:\n` +
+      `    node ${SKILL_REL}/scripts/hooks-lint.mjs\n`
   );
   return 0;
 }
@@ -192,10 +220,10 @@ function uninstall(root, apply) {
       process.stdout.write("  no pre-commit hook of ours to remove\n");
     }
   }
-  const dir = path.join(root, ".cline", "hooks");
-  for (const name of Object.keys(CLINE_HOOKS)) {
+  const dir = path.join(root, CLINE_HOOK_DIR);
+  for (const name of CLINE_HOOKS) {
     const file = path.join(dir, name);
-    if (fs.existsSync(file) && fs.readFileSync(file, "utf8").includes(MARKER)) {
+    if (fs.existsSync(file) && fs.readFileSync(file, "utf8").includes(MARKER_TEXT)) {
       process.stdout.write(`  ${apply ? "remove" : "would remove"}  ${file}\n`);
       if (apply) fs.unlinkSync(file);
     }
@@ -214,7 +242,7 @@ function main() {
   else {
     rc = installGit(args.root, apply) || rc;
     if (args.cline) rc = installCline(args.root, apply) || rc;
-    else process.stdout.write("  (pass --cline to also write .cline/hooks/)\n");
+    else process.stdout.write(`  (pass --cline to also write ${CLINE_HOOK_DIR}/)\n`);
   }
 
   if (!apply) process.stdout.write("\nNothing was written.\n");

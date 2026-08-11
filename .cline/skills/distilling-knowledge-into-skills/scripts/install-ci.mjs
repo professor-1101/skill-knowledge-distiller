@@ -47,6 +47,11 @@ jobs:
         run: node ${SKILL_REL}/tests/run-tests.mjs
       - name: Extractor conformance
         run: node ${SKILL_REL}/scripts/extractor-check.mjs --record
+      - name: Cline hook contract, statically
+        # This tier cannot be proven by running it — that needs a live Cline.
+        # Checking the generated files against the documented contract is what
+        # is available, and it is what caught the last four mistakes.
+        run: node ${SKILL_REL}/scripts/hooks-lint.mjs --root .
       - name: Check the claim store, digests included
         # --verify re-reads every segment file, which is why it runs here and
         # not in the pre-commit hook: recording a digest and never checking it
@@ -65,6 +70,7 @@ check-store:
   script:
     - node ${SKILL_REL}/tests/run-tests.mjs
     - node ${SKILL_REL}/scripts/extractor-check.mjs --record
+    - node ${SKILL_REL}/scripts/hooks-lint.mjs --root .
     - node ${SKILL_REL}/scripts/check-store.mjs --root . --profile strict --verify
     - node ${SKILL_REL}/scripts/certify.mjs --root . || true
 `;

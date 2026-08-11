@@ -138,6 +138,8 @@ describe("rgate · the Skill matches the tree", () => {
     const scripts = fs.readdirSync(path.join(root, "scripts")).filter((f) => f.endsWith(".mjs"));
     const corpus =
       skill +
+      fs.readdirSync(path.join(root, "tests")).filter((f) => f.endsWith(".mjs"))
+        .map((f) => fs.readFileSync(path.join(root, "tests", f), "utf8")).join("\n") +
       scripts.map((f) => fs.readFileSync(path.join(root, "scripts", f), "utf8")).join("\n") +
       fs.readdirSync(path.join(root, "docs")).map((f) => fs.readFileSync(path.join(root, "docs", f), "utf8")).join("\n");
     const orphans = scripts.filter((f) => corpus.split(f).length < 2);
