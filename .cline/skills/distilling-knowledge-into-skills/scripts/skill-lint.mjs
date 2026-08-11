@@ -38,7 +38,14 @@ export const SKILL_CONTRACT = {
   knownDirs: ["docs", "templates", "scripts"],
   // "Use lowercase with hyphens (kebab-case)"
   namePattern: /^[a-z0-9]+(-[a-z0-9]+)*$/,
-  // "Place skill directories in .cline/skills/ (workspace) or ~/.cline/skills/"
+  // "Project skills: .cline/skills/ (recommended), .clinerules/skills/,
+  //  .claude/skills/"
+  //
+  // The third is a compatibility path Cline reads for skills written against
+  // another agent's layout. It is listed because Cline lists it: a lint that
+  // reported "not a discovery root" for a directory Cline does discover would
+  // be wrong, and being wrong confidently is the failure this whole repository
+  // is built to avoid. Nothing here writes to it.
   projectRoots: [
     path.join(".cline", "skills"),
     path.join(".clinerules", "skills"),

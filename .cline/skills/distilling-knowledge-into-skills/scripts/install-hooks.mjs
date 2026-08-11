@@ -2,9 +2,9 @@
 // install-hooks.mjs — make the methodology refuse, on every surface.
 //
 // The previous project's hardest-won lesson is that a methodology nothing
-// enforces is a suggestion. Its gate was three Claude-Code-specific hooks, and
-// porting that shape directly would strand every author working in the VS Code
-// or JetBrains extension, where Cline plugins do not run.
+// enforces is a suggestion. Its gate was three hooks tied to one agent and one
+// surface, and porting that shape directly would strand every author working
+// in the VS Code or JetBrains extension, where Cline plugins do not run.
 //
 // So enforcement is layered, and the layers run the same `check-store.mjs`:
 //

@@ -71,7 +71,7 @@
       "should_trigger": false
     },
     {
-      "query": "i've got a skill from claude code with references/ and allowed-tools in the frontmatter. what do i change to make it work in cline",
+      "query": "i've got a skill from another agent with references/ and allowed-tools in the frontmatter. what do i change to make it work in cline",
       "should_trigger": false
     },
     {
