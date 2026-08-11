@@ -193,10 +193,22 @@ node <creator>/scripts/trigger-eval.mjs --skill . --set evals/trigger-set.json
 node <creator>/scripts/doctor.mjs --deep
 ```
 
-**The `.cline/hooks/` contract is unverified.** The CLI reads a hooks directory
-and the stage names are documented, but the discovery contract for a
-non-plugin hooks directory has not been confirmed against a running Cline. The
-git and CI tiers are verified and are what the guarantee rests on.
+**The Cline hook tier is checked statically, not by running Cline.** There is
+no live Cline here, so `hooks-lint.mjs` checks the generated files against the
+documented contract — location, naming, executability, that each parses, that
+it reads stdin and emits `cancel`, and that exit 2 appears only for
+`PreToolUse`. The handlers are additionally driven with the JSON Cline
+documents itself as sending. What remains unproven is that a running Cline
+discovers and invokes them; the git and CI tiers are what the guarantee rests
+on.
+
+That check exists because the first attempt at the tier was wrong four ways at
+once, and every one was statically visible: SDK plugin *stage* names
+(`tool_call_before`) used as file names, `.cline/hooks/` instead of
+`.clinerules/hooks/`, no stdin handling, and no JSON response. A fifth
+appeared while fixing it — a `#` comment marker, correct in shell and a syntax
+error in JavaScript, which produced hooks that were installed, executable and
+could not run. The lint now catches that too.
 
 ## What is verified about the checks themselves
 

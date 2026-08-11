@@ -292,7 +292,8 @@ node scripts/graph.mjs && node scripts/context.mjs --for rule/<id> --hops 2
 node scripts/checkpoint.mjs --pending --stage R0             # what is left to do
 node scripts/check-store.mjs --profile strict --verify       # every gate, digests included
 node scripts/certify.mjs                                     # counts and shortfalls
-node scripts/install-hooks.mjs --apply                       # make it refuse
+node scripts/install-hooks.mjs --cline --apply               # make it refuse
+node scripts/hooks-lint.mjs                                  # check the hooks statically
 ```
 
 `node tests/run-tests.mjs` proves the gates by what they refuse, and checks that

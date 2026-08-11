@@ -59,26 +59,57 @@ reach it.
 
 ## The Cline tier
 
+Cline has **two** hook systems, and conflating them is the trap. The first
+attempt at this tier did, and was wrong on four counts at once.
+
+| | SDK plugin hooks | File-based hooks |
+|---|---|---|
+| Where | `AgentPlugin.hooks` object | `.clinerules/hooks/` · `~/Documents/Cline/Rules/Hooks/` |
+| Keyed by | *stage* — `tool_call_before`, `session_start` | *hook type* — `PreToolUse`, `TaskStart` |
+| Written in | TypeScript | any executable |
+| Needs a plugin | yes | **no** |
+
+Plugins do not run in the VS Code or JetBrains extensions, so the file-based
+system is the one used here.
+
 ```bash
 node scripts/install-hooks.mjs --cline --apply
-cline --hooks-dir ./.cline/hooks
+node scripts/hooks-lint.mjs                      # check them against the contract
 ```
 
-Writes `session_start`, `tool_call_before` and `tool_call_after` into
-`.cline/hooks/`, carrying the activation-token design intact: the token records
-the sha256 of the SKILL.md that was loaded, and the gate refuses claim-store
-writes unless the token matches the file on disk **now**. Editing the
-methodology without re-loading it leaves the token stale and the gate closed —
-the same invalidation-by-hash rule the pipeline applies to prompt versions.
+The contract, as documented:
 
-```bash
-node scripts/activate.mjs            # write the token, print the ruleset
-node scripts/activate.mjs --gate     # exit 2 unless the token is current
-```
+- the file name is **exactly** the hook type, with no extension, and executable
+- one JSON object arrives on **stdin**: `clineVersion`, `hookName`, `timestamp`,
+  `taskId`, `workspaceRoots`, `userId`, plus per-hook fields
+- one JSON object goes to **stdout**: `{ cancel, errorMessage, contextModification }`
+- **exit 2 blocks, and only for `PreToolUse`** — stderr reaches the model
 
-**Honest limitation.** Cline's CLI reads a hooks directory (`--hooks-dir`,
-defaulting to `~/.cline/hooks`) and the stage vocabulary is documented, but the
-exact discovery contract for a non-plugin hooks directory has not been verified
-against a running Cline from this repository. Treat this tier as an addition.
-The guarantee rests on git and CI, which are verified by
-`tests/run-tests.mjs` and by the negative tests in `docs/pitfalls.md`.
+Three hooks are installed. `TaskStart` writes the activation token and returns
+the ruleset as `contextModification`. `PreToolUse` refuses a write into the
+claim store when the token is missing or no longer matches the SKILL.md digest,
+setting `cancel` **and** exiting 2 — both channels, because relying on one is a
+bet. `PostToolUse` runs the store check and returns any rejections as context;
+it never cancels, because it cannot.
+
+All three are shims over `scripts/cline-hook.mjs`, which calls the same
+`activate.mjs` and `check-store.mjs` the git tier runs.
+
+### What is and is not verified
+
+This tier **cannot be proven by running it** — that needs a live Cline, and the
+environment this was built in has none. What it gets instead is static
+analysis: `hooks-lint.mjs` checks location, naming, executability, that the
+file parses in the language its shebang declares, that it reads stdin, that it
+emits `cancel`, and that exit 2 appears only where it means something.
+
+Twenty-one tests cover it, and the negative cases are all mistakes this tier
+actually made: an SDK stage name used as a file name, `.cline/hooks/` as the
+directory, no stdin handling, no JSON response, and a `#` comment marker that
+is valid shell and a syntax error in JavaScript — which produced hooks that
+were installed, executable, and could not run.
+
+The handlers are also driven directly with the JSON Cline documents itself as
+sending, which proves the round trip without proving that Cline invokes them.
+
+**The guarantee still rests on git and CI.** This tier is an addition.
