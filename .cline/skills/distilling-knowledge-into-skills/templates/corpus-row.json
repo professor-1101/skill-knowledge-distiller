@@ -1,0 +1,10 @@
+{
+  "unit": "source-slug/ch03/s01",
+  "book": "source-slug",
+  "title": "as the source's own table of contents states it, transcribed rather than recalled",
+  "status": "pending",
+  "_status_values": "pending | extracted | probed | saturated | source-failed | schema-failed | deferred",
+  "_note": "Status is DERIVED from the claims and the probe log, never authored. The previous run's store marked two chapters saturated while holding zero claims, because status was a judgement nobody reconciled.",
+  "chunks": [],
+  "_denominator": "Every unit the source contains needs a row here before extraction starts. A chapter with no row is a silent gap no certificate can catch, because reconciliation only ever sees what the manifest says exists."
+}
