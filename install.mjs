@@ -34,13 +34,18 @@ const SOURCE = path.join(here, ".cline", "skills", NAME);
 // and nothing else.
 const CONTENTS = ["SKILL.md", "docs", "scripts", "templates", "evals", "tests"];
 
-// Cline's own documentation names two global locations, and both are official.
-// Writing the first and reporting the second beats guessing which one this
-// machine reads.
-const GLOBAL_CANDIDATES = [
-  path.join(os.homedir(), ".cline", "skills"),
-  path.join(os.homedir(), ".cline", "data", "settings", "skills"),
-];
+// One global location, cited. `getting-started/config` is the page the skills,
+// rules and CLI references all defer to for storage, and it is explicit:
+// "Global rules, hooks, skills, agents, plugins, and cron specs resolve
+// directly under ~/.cline/", while ~/.cline/data/settings/ holds providers,
+// global settings and MCP config and nothing else. The same page says global
+// config "applies globally across all Cline applications, including IDE, CLI,
+// and SDK" — so this one path covers the VS Code and JetBrains extensions too.
+//
+// An earlier version of this file also offered ~/.cline/data/settings/skills,
+// inferred from the CLI reference's configuration tree. Nothing reads it, and
+// telling somebody to copy their skill there is worse than saying nothing.
+const GLOBAL_SKILLS = path.join(os.homedir(), ".cline", "skills");
 
 const sha256 = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
 
@@ -121,7 +126,7 @@ function resolveTarget(args) {
     return path.basename(p) === NAME ? p : path.join(p, NAME);
   }
   if (args.project) return path.resolve(args.root || ".", ".cline", "skills", NAME);
-  return path.join(GLOBAL_CANDIDATES[0], NAME);
+  return path.join(GLOBAL_SKILLS, NAME);
 }
 
 function copyInto(target, files) {
@@ -218,27 +223,23 @@ function install(target, args) {
   process.stdout.write(`to                ${target}\n`);
   process.stdout.write(`files             ${files.length}${stale.length ? `  (${stale.length} stale removed)` : ""}\n`);
 
-  if (!args.project && !args.path) {
-    const other = GLOBAL_CANDIDATES[1];
-    process.stdout.write(
-      `\nCline documents two global locations and both are official. This wrote the\n` +
-        `first; if your install reads the second, copy it to:\n  ${other}\n`
-    );
-  }
   // Global beats project for skills — the reverse of rules. Someone keeping an
   // old personal copy silently overrides the team's, and every edit they make
   // to the project copy does nothing.
-  const shadowing = args.project
-    ? GLOBAL_CANDIDATES.map((d) => path.join(d, NAME)).filter((d) => fs.existsSync(d))
-    : [];
-  if (shadowing.length) {
+  const shadow = path.join(GLOBAL_SKILLS, NAME);
+  if (args.project && fs.existsSync(shadow) && path.resolve(shadow) !== target) {
     process.stdout.write(
-      `\nWARNING: a global copy exists at\n  ${shadowing[0]}\n` +
+      `\nWARNING: a global copy exists at\n  ${shadow}\n` +
         `Global skills take precedence over project ones — the reverse of rules — so\n` +
         `the copy just installed will not be the one that runs.\n`
     );
   }
-  process.stdout.write(`\nStart a new session: skills are read at startup.\n`);
+  process.stdout.write(
+    `\nStart a new session: skills are read at startup. In the VS Code or JetBrains\n` +
+      `extension that means quitting and reopening, not reloading the window.\n` +
+      `\nIf it does not appear, this says why:\n` +
+      `  node ${path.join(target, "scripts", "doctor.mjs")}\n`
+  );
   return 0;
 }
 

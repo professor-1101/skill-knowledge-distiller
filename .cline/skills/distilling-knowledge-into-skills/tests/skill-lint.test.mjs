@@ -207,7 +207,12 @@ describe("skill-lint · frontmatter a YAML parser can actually read", () => {
     equal(plainScalarProblem(""), null);
     assert(plainScalarProblem("bad: here"), "colon-space must fail");
     assert(plainScalarProblem("*anchor reference"), "indicator must fail");
-    assert(plainScalarProblem("trailing space "), "trailing whitespace must fail");
+    assert(plainScalarProblem("ends with a colon:"), "trailing colon must fail");
+    // Checked against a real parser rather than reasoned about: YAML strips a
+    // trailing space, so flagging it would reject a file that loads fine. An
+    // earlier version did, which is the same over-confidence in a different
+    // direction.
+    equal(plainScalarProblem("trailing space "), null);
   });
 });
 

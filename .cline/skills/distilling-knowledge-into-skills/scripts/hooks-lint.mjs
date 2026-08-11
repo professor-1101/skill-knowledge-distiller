@@ -24,6 +24,12 @@ import { execFileSync } from "node:child_process";
 import { parseArgs } from "./lib/jsonl.mjs";
 
 /**
+ * Written by an earlier version of this skill and read by nothing. Kept only
+ * so the lint can report an orphan and uninstall can clear it.
+ */
+export const LEGACY_PROJECT_DIR = path.join(".clinerules", "hooks");
+
+/**
  * The contract, as documented by Cline.
  *
  * Two hook systems exist and conflating them is the trap this file guards.
@@ -33,17 +39,25 @@ import { parseArgs } from "./lib/jsonl.mjs";
  * file-based system below needs no plugin, which is why it is the one used.
  */
 export const CONTRACT = {
-  // Cline's own references name different locations, and both are official:
-  // `customization/hooks` documents `.clinerules/hooks/`, while the CLI
-  // reference's configuration tree lists `.cline/hooks/` as "Lifecycle hooks"
-  // and gives `~/.cline/hooks` as the `--hooks-dir` default. This is the same
-  // ambiguity the docs already carry for global skills. Rather than pick one
-  // and be wrong on half the installs, every candidate is written and every
-  // candidate is checked.
-  projectDirs: [path.join(".clinerules", "hooks"), path.join(".cline", "hooks")],
+  // Every path below carries the page and sentence it comes from. An earlier
+  // version of this file listed `.clinerules/hooks/` on a citation that does
+  // not exist — `customization/hooks` is a stub reading "See details under SDK
+  // Plugins" — and the invention survived into the docs, the tests and a
+  // commit message. A bare string constant cannot be checked against anything;
+  // a cited one can.
+  //
+  // getting-started/config, project tree:
+  //   .cline/
+  //     hooks/    # Lifecycle hooks
+  projectDirs: [path.join(".cline", "hooks")],
+  // Same page: "Global rules, hooks, skills, agents, plugins, and cron specs
+  // resolve directly under ~/.cline/" and "Rules, hooks, plugins, and
+  // workflows may also be discovered from ~/Documents/Cline/ for
+  // compatibility." The CLI reference agrees, giving ~/.cline/hooks as the
+  // --hooks-dir default.
   globalDirs: [
-    path.join("Documents", "Cline", "Rules", "Hooks"),
     path.join(".cline", "hooks"),
+    path.join("Documents", "Cline", "Hooks"),
   ],
   // Named after the hook *type*, exactly, with no extension.
   types: [
@@ -208,15 +222,19 @@ export function lintHooks(root) {
     warnings.push("no PreToolUse hook — nothing refuses a write into the claim store at the Cline tier");
   }
 
-  // Installing only one of the documented locations is a coin flip on which
-  // one this Cline reads.
-  const covered = CONTRACT.projectDirs.filter((d) => fs.existsSync(path.join(root, d)));
-  if (covered.length < CONTRACT.projectDirs.length) {
-    const missing = CONTRACT.projectDirs.filter((d) => !covered.includes(d));
-    warnings.push(
-      `hooks are in ${covered.join(", ")} but not ${missing.join(", ")}. Cline's own ` +
-        `references name both, so covering one is a bet on which the install reads`
-    );
+  // A previous version of this skill wrote hooks into `.clinerules/hooks/` on
+  // a citation that turned out not to exist. Nothing reads that directory, so
+  // anything left there is an orphan: it looks like enforcement and is not.
+  const legacy = path.join(root, LEGACY_PROJECT_DIR);
+  if (fs.existsSync(legacy)) {
+    const orphans = fs.readdirSync(legacy).filter((f) => CONTRACT.types.includes(f));
+    if (orphans.length) {
+      warnings.push(
+        `${orphans.join(", ")} are in ${LEGACY_PROJECT_DIR}, which Cline does not read. ` +
+          `An earlier version of install-hooks.mjs wrote them there. Remove them with ` +
+          `'node scripts/install-hooks.mjs --uninstall --apply', then reinstall`
+      );
+    }
   }
 
   for (const g of CONTRACT.globalDirs) {

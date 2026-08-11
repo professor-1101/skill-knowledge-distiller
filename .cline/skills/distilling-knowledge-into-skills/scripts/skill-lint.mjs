@@ -17,6 +17,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "./lib/jsonl.mjs";
 
@@ -51,10 +52,14 @@ export const SKILL_CONTRACT = {
     path.join(".clinerules", "skills"),
     path.join(".claude", "skills"),
   ],
-  globalRoots: [
-    path.join(".cline", "skills"),
-    path.join(".cline", "data", "settings", "skills"),
-  ],
+  // getting-started/config: "Global rules, hooks, skills, agents, plugins, and
+  // cron specs resolve directly under ~/.cline/". One path, not two — an
+  // earlier version also listed ~/.cline/data/settings/skills, inferred from
+  // the CLI reference's tree. That directory holds providers, global settings
+  // and MCP config; no skill is read from it. The same page says global config
+  // "applies globally across all Cline applications, including IDE, CLI, and
+  // SDK", so this covers the editor extensions too.
+  globalRoots: [path.join(".cline", "skills")],
   // The reference's own examples of a description that will not trigger.
   weakDescriptions: [/^helps? with /i, /^useful for /i, /^[a-z ]{0,20}helper\.?$/i],
 };
@@ -106,14 +111,58 @@ export function plainScalarProblem(value) {
       `to parse and the skill never loads. Use a dash or a comma, or quote the value`;
   }
   if (/\s#/.test(value)) {
+    // This one parses. It just quietly throws away everything after the hash,
+    // which for a description means a skill that stops triggering and gives no
+    // sign why. Checked against PyYAML: `d: a #b` yields `a`.
     return `contains ' #', which starts a YAML comment and silently truncates the value`;
   }
   const first = value[0];
   if ("-?[]{},&*!|>%@`".includes(first)) {
     return `starts with '${first}', a YAML indicator character. Quote the value or reword it`;
   }
-  if (/[:\s]$/.test(value)) return `ends with a colon or trailing space`;
+  // A trailing colon breaks the parse the same way `: ` does. A trailing space
+  // does not — YAML strips it — so it is not flagged. Every severity here was
+  // set by running the case through a real parser rather than by reasoning
+  // about the spec, which is how the over-strict version got written.
+  if (value.endsWith(":")) {
+    return `ends with a colon, which opens a mapping and fails the parse`;
+  }
   return null;
+}
+
+/**
+ * Ask a real YAML parser whether the frontmatter is valid.
+ *
+ * The check above is a heuristic, and a heuristic is exactly how a skill
+ * shipped that no parser could read. So where a real one is available it gets
+ * the deciding vote. Nothing requires it: a skill copied into ~/.cline/skills/
+ * never gets an `npm install`, and Node has no YAML parser, so the heuristic
+ * has to stand alone when Python is absent.
+ *
+ * Returns { available, ok, error }. `available: false` means the question was
+ * not asked — reported, never treated as a pass.
+ */
+export function yamlParserVerdict(frontmatter) {
+  const probe = `import sys,yaml
+try:
+    d = yaml.safe_load(sys.stdin.read())
+except Exception as e:
+    print("ERR " + str(e).split("\\n")[0]); sys.exit(0)
+print("OK" if isinstance(d, dict) else "ERR frontmatter is not a mapping")`;
+  for (const python of ["python3", "python"]) {
+    try {
+      const out = execFileSync(python, ["-c", probe], {
+        input: frontmatter,
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "ignore"],
+      }).trim();
+      if (out.startsWith("OK")) return { available: true, ok: true, error: null };
+      return { available: true, ok: false, error: out.replace(/^ERR /, "") };
+    } catch {
+      // No interpreter, or no PyYAML. Try the next name, then give up quietly.
+    }
+  }
+  return { available: false, ok: null, error: null };
 }
 
 /**
@@ -187,6 +236,21 @@ export function lintSkill(dir) {
 
   const { fields, problems } = parseFrontmatter(frontmatter);
   for (const p of problems) errors.push(`frontmatter: ${p}`);
+
+  // A real parser gets the deciding vote where one exists. The heuristic
+  // stands alone otherwise, and says so rather than implying it was confirmed.
+  const yaml = yamlParserVerdict(frontmatter);
+  if (yaml.available && !yaml.ok) {
+    errors.push(
+      `frontmatter does not parse as YAML: ${yaml.error}. Cline reads this file with a ` +
+        `real parser, so the skill will be discovered and never load`
+    );
+  } else if (!yaml.available) {
+    notes.push(
+      `no Python with PyYAML here, so the frontmatter was checked by pattern only. ` +
+        `Install one to have a real parser confirm it`
+    );
+  }
 
   // --- required fields ------------------------------------------------------
   for (const key of SKILL_CONTRACT.required) {

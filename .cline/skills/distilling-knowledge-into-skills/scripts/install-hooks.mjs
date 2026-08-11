@@ -140,7 +140,7 @@ function installGit(root, apply) {
 // an `AgentPlugin.hooks` object and needs a plugin; this one is executables
 // discovered by name, and does not.
 //
-//   location  .clinerules/hooks/ and .cline/hooks/ (project) · ~/.cline/hooks/ (global)
+//   location  .cline/hooks/ (project) · ~/.cline/hooks/ (global)
 //   name      exactly the hook type, no extension, executable
 //   stdin     one JSON object with clineVersion, hookName, taskId,
 //             workspaceRoots, and per-hook fields
@@ -149,10 +149,15 @@ function installGit(root, apply) {
 //
 // `scripts/hooks-lint.mjs` checks the generated files against that contract
 // statically, because it cannot be checked by running Cline from here.
-// Both are documented and official: `customization/hooks` names
-// `.clinerules/hooks/`, the CLI reference's config tree names `.cline/hooks/`.
-// Writing both costs three small files and removes the guess.
-const CLINE_HOOK_DIRS = [path.join(".clinerules", "hooks"), path.join(".cline", "hooks")];
+//
+// One project location, cited: `getting-started/config` lists `.cline/hooks/`
+// under the project tree as "Lifecycle hooks". A previous version of this file
+// also wrote `.clinerules/hooks/`, on a citation that does not exist. Nothing
+// reads that directory, so the files there were an orphan that looked like
+// enforcement. It stays in the uninstall list so an existing install is
+// cleaned rather than abandoned.
+const CLINE_HOOK_DIRS = [path.join(".cline", "hooks")];
+const UNINSTALL_DIRS = [...CLINE_HOOK_DIRS, path.join(".clinerules", "hooks")];
 const CLINE_HOOKS = ["TaskStart", "PreToolUse", "PostToolUse"];
 
 /**
@@ -199,9 +204,8 @@ function installCline(root, apply) {
     }
   }
   process.stdout.write(
-    `\n  Both documented locations are covered — no plugin required, so this tier\n` +
-      `  reaches the IDE extensions too. Check the generated files against the\n` +
-      `  documented contract with:\n` +
+    `\n  No plugin required, so this tier reaches the IDE extensions too. Check the\n` +
+      `  generated files against the documented contract with:\n` +
       `    node ${SKILL_REL}/scripts/hooks-lint.mjs\n`
   );
   return 0;
@@ -225,7 +229,7 @@ function uninstall(root, apply) {
       process.stdout.write("  no pre-commit hook of ours to remove\n");
     }
   }
-  for (const rel of CLINE_HOOK_DIRS) {
+  for (const rel of UNINSTALL_DIRS) {
     for (const name of CLINE_HOOKS) {
       const file = path.join(root, rel, name);
       if (fs.existsSync(file) && fs.readFileSync(file, "utf8").includes(MARKER_TEXT)) {

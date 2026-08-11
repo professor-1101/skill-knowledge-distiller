@@ -17,7 +17,9 @@ cd skill-knowledge-distiller
 node install.mjs
 ```
 
-Then start a new session — skills are read at startup.
+Then start a new session — skills are read at startup. In the VS Code or
+JetBrains extension that means quitting and reopening, not reloading the
+window.
 
 | Command | Does |
 |---|---|
@@ -31,10 +33,25 @@ An update **refuses when the installed copy has been edited**, naming the
 files, and writes nothing when it refuses. Overwriting somebody's changes is
 not a decision an installer should make on their behalf.
 
-Cline documents two global skill locations and both are official; the installer
-writes the first and tells you the second. Note that **global skills take
-precedence over project ones** — the reverse of rules — so a stale personal
-copy silently overrides the team's. `--project` warns when that is the case.
+Global skills live in `~/.cline/skills/`, which
+[`getting-started/config`](https://docs.cline.bot/getting-started/config) says
+applies "across all Cline applications, including IDE, CLI, and SDK" — one path
+covers the editor extensions too. **Global skills take precedence over project
+ones**, the reverse of rules, so a stale personal copy silently overrides the
+team's. `--project` warns when that is the case.
+
+### If Cline does not list it
+
+```bash
+node ~/.cline/skills/distilling-knowledge-into-skills/scripts/doctor.mjs
+```
+
+Reads only. It reports every documented discovery location, what is in each,
+which copy wins, and the things that make Cline skip a directory without
+saying so: a byte-order mark in front of the `---`, a case-wrong `SKILL.md`, a
+`name` that does not match its directory, an over-long description, and
+frontmatter that no YAML parser can read. That last one is not hypothetical —
+it shipped once, and a single colon followed by a space was the whole cause.
 
 ## Using it
 

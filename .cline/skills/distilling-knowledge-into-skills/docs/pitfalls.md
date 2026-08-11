@@ -210,24 +210,64 @@ comment marker, correct in shell and a syntax error in JavaScript, which
 produced hooks that were installed, executable and could not run. The lint now
 catches that too.
 
-**The directory turned out to be a documentation conflict, not a mistake with
-one right answer.** `customization/hooks` documents `.clinerules/hooks/`; the
-CLI reference's configuration tree lists `.cline/hooks/` under "Lifecycle
-hooks" and gives `~/.cline/hooks` as the `--hooks-dir` default. Both are
-official. The first fix followed one source and made the lint *error* on the
-other existing — replacing a guess with a confident guess. Where references
-disagree and the artifact is cheap, write every candidate and let the lint
-insist on it: the installer now populates both, and covering only one is a
-warning. The general lesson is the one this file keeps repeating — a rule
-asserted more firmly than the evidence supports is worse than an
-acknowledged ambiguity, because nothing downstream can tell the difference.
+**The directory took three attempts, and the middle one is the instructive
+failure: a citation that did not exist.** The first version guessed. The second
+"resolved a documentation conflict" between `.clinerules/hooks/` and
+`.cline/hooks/`, wrote both, and recorded the reasoning here, in
+`enforcement.md`, in the lint's own comments and in a commit message. There was
+no conflict. `customization/hooks` is a 143-byte stub reading *"See details
+under SDK Plugins"* — it documents nothing, and `.clinerules/` is documented
+for rules and for `.clinerules/skills/`, never for hooks.
+`grep -rn clinerules` across every fetched page says so in one command, and
+nobody ran it because the claim had already been written down confidently.
+
+The correct answer was in `getting-started/config` the whole time — the page
+the skills, rules and CLI references all defer to for storage locations:
+`.cline/hooks/` in the project tree, `~/.cline/hooks/` globally,
+`~/Documents/Cline/` for compatibility.
+
+*Now caught by:* every path constant carries the page and the sentence it comes
+from. A bare string cannot be checked against anything; a cited one can be
+checked in the time it takes to open the page. The lint also reports hooks left
+in the invented directory as orphans, and uninstall clears them.
+
+The general lesson is the one this file keeps repeating, with a sharper edge: a
+claim asserted more firmly than the evidence supports is worse than an
+acknowledged ambiguity, and **inventing a source is worse than both**, because
+the fabricated citation is what stops anyone checking.
+
+## 25. A conforming skill that no parser could read
+
+The description contained `evidence-backed skill: ingesting`. In an unquoted
+YAML value a colon followed by a space opens a nested mapping, so every parser
+stops with *"mapping values are not allowed here"* and Cline loaded nothing.
+The skill was installed, in the right directory, discoverable, and inert.
+
+`skill-lint.mjs` reported it as conforming. It split each line on the first
+colon, found `name` and `description`, and never asked whether a real parser
+would agree — a check confidently wrong about the one thing it existed to
+verify. It took a user saying "Cline can't recognize it" to find a defect one
+command would have shown.
+
+*Now caught by:* a plain-scalar validator for `: `, ` #`, leading indicator
+characters and a trailing colon, **and** a real parser where one is installed,
+which gets the deciding vote. Each severity was set by running the case through
+PyYAML rather than by reasoning about the spec — that exercise immediately
+showed the first version was over-strict about trailing whitespace, which YAML
+simply strips.
+
+`doctor.mjs` exists for the same reason. "Why does Cline not see my skill" had
+no mechanical answer, so the failure was invisible until somebody noticed by
+hand. It now reports every documented location, which copy wins, and the silent
+killers per skill: a BOM before the `---`, CRLF, a case-wrong `SKILL.md`, a
+name that does not match its directory, a symlink, an over-long description.
 
 ## What is verified about the checks themselves
 
-`node tests/run-tests.mjs` — 148 tests in eleven categories: unit, negative,
+`node tests/run-tests.mjs` — 170 tests in twelve categories: unit, negative,
 edge, integrity, determinism, derivation, regression, end-to-end, resume,
-R-gate coverage, and the two contract lints — hooks and the skill package
-itself. Most are negative, and each is either a defect above or a constraint
+R-gate coverage, the two contract lints — hooks and the skill package — and the
+install doctor. Most are negative, and each is either a defect above or a constraint
 the design exists to enforce.
 
 **A stated check with no implementation is the same defect as a stated rule

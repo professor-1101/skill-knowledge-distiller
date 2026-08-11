@@ -50,6 +50,8 @@ jobs:
       - name: Skill contract
         # A skill that fails discovery has produced nothing, however good its
         # contents. Checked here for every compiled package, including this one.
+        # CI is also where a real YAML parser is reliably available, so the
+        # frontmatter is confirmed rather than pattern-matched.
         run: node ${SKILL_REL}/scripts/skill-lint.mjs
       - name: Cline hook contract, statically
         # This tier cannot be proven by running it — that needs a live Cline.

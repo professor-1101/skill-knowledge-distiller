@@ -22,7 +22,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, it, assert, equal, includes } from "./harness.mjs";
-import { lintHooks, CONTRACT } from "../scripts/hooks-lint.mjs";
+import { lintHooks, CONTRACT, LEGACY_PROJECT_DIR } from "../scripts/hooks-lint.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SKILL_REL = ".cline/skills/distilling-knowledge-into-skills";
@@ -64,13 +64,18 @@ function invoke(dir, hook, input, location = CONTRACT.projectDirs[0]) {
 describe("hooks · the generated set conforms to the documented contract", () => {
   const dir = workspace();
 
-  it("installs into every documented project location, not a guess at one", () => {
-    assert(CONTRACT.projectDirs.length >= 2, "the ambiguity is the reason this test exists");
-    for (const location of CONTRACT.projectDirs) {
-      for (const name of ["TaskStart", "PreToolUse", "PostToolUse"]) {
-        assert(fs.existsSync(path.join(dir, location, name)), `${location}/${name} is missing`);
-      }
+  it("installs into .cline/hooks/, the documented project location", () => {
+    equal(CONTRACT.projectDirs, [path.join(".cline", "hooks")]);
+    for (const name of ["TaskStart", "PreToolUse", "PostToolUse"]) {
+      assert(fs.existsSync(path.join(dir, CONTRACT.projectDirs[0], name)), `${name} is missing`);
     }
+  });
+
+  it("writes nothing into .clinerules/hooks/, which nothing reads", () => {
+    // An earlier version wrote there on a citation that does not exist:
+    // `customization/hooks` is a stub reading "See details under SDK Plugins",
+    // and `.clinerules/` is documented for rules and skills, never hooks.
+    assert(!fs.existsSync(path.join(dir, LEGACY_PROJECT_DIR)), "that directory was invented");
   });
 
   it("names files after the hook type with no extension, and makes them executable", () => {
@@ -88,15 +93,11 @@ describe("hooks · the generated set conforms to the documented contract", () =>
     equal(warnings, []);
   });
 
-  it("resolves its delegate from either location", () => {
-    // The shim resolves relative to its own directory, and the two locations
-    // sit at different depths from the skill. A path computed for one and
-    // written to both would load in one place and fail in the other.
-    for (const location of CONTRACT.projectDirs) {
-      const r = invoke(dir, "TaskStart", {}, location);
-      equal(r.code, 0, `${location} did not run`);
-      includes(r.json.contextModification, "KNOWLEDGE-DISTILLATION METHODOLOGY ACTIVE");
-    }
+  it("resolves its delegate relative to its own directory, not the cwd", () => {
+    // A hook is not guaranteed to be run from the workspace root.
+    const r = invoke(dir, "TaskStart", {});
+    equal(r.code, 0);
+    includes(r.json.contextModification, "KNOWLEDGE-DISTILLATION METHODOLOGY ACTIVE");
   });
 });
 
@@ -181,21 +182,15 @@ describe("hooks · the lint catches every mistake this tier already made", () =>
     includes(errors.join("\n"), "SDK plugin *stage* name");
   });
 
-  it("warns when only one of the documented locations is covered", () => {
-    // Both are official — `customization/hooks` names .clinerules/hooks/, the
-    // CLI reference's configuration tree names .cline/hooks/. Installing one
-    // is a bet on which this Cline reads, so it is a finding, not a pass.
-    const dir = withHooks({ PreToolUse: { body: good } }, { locations: [CONTRACT.projectDirs[0]] });
-    const { errors, warnings } = lintHooks(dir);
-    equal(errors, []);
-    includes(warnings.join("\n"), CONTRACT.projectDirs[1]);
-  });
-
-  it("checks the files in every location, not only the first", () => {
+  it("reports hooks orphaned in the location an earlier version invented", () => {
     const dir = withHooks({ PreToolUse: { body: good } });
-    fs.writeFileSync(path.join(dir, CONTRACT.projectDirs[1], "tool_call_before"), good);
-    fs.chmodSync(path.join(dir, CONTRACT.projectDirs[1], "tool_call_before"), 0o755);
-    includes(lintHooks(dir).errors.join("\n"), "SDK plugin *stage* name");
+    const legacy = path.join(dir, LEGACY_PROJECT_DIR);
+    fs.mkdirSync(legacy, { recursive: true });
+    fs.writeFileSync(path.join(legacy, "PreToolUse"), good);
+    const { errors, warnings } = lintHooks(dir);
+    equal(errors, [], "a stale file is not a contract violation");
+    includes(warnings.join("\n"), "which Cline does not read");
+    includes(warnings.join("\n"), "--uninstall");
   });
 
   it("rejects a file that never reads stdin", () => {
@@ -238,15 +233,27 @@ describe("hooks · the lint catches every mistake this tier already made", () =>
 });
 
 describe("hooks · uninstall reverses cleanly", () => {
-  it("removes what it wrote, from every location, and nothing else", () => {
+  it("removes what it wrote and nothing else", () => {
     const dir = workspace();
-    const foreign = path.join(dir, CONTRACT.projectDirs[0], "TaskComplete");
-    fs.writeFileSync(foreign, "#!/bin/sh\nexit 0\n");
+    fs.writeFileSync(path.join(dir, CONTRACT.projectDirs[0], "TaskComplete"), "#!/bin/sh\nexit 0\n");
     execFileSync("node", [path.join(dir, SKILL_REL, "scripts", "install-hooks.mjs"), "--root", ".", "--uninstall", "--apply"],
       { cwd: dir, stdio: "ignore" });
     equal(fs.readdirSync(path.join(dir, CONTRACT.projectDirs[0])), ["TaskComplete"],
       "somebody else's hook is not ours to remove");
-    equal(fs.readdirSync(path.join(dir, CONTRACT.projectDirs[1])), [],
-      "the second location must be cleaned too, or uninstall leaves a live tier behind");
+  });
+
+  it("still clears the location an earlier version wrote to", () => {
+    // Someone who installed the previous version has three executables sitting
+    // in a directory nothing reads. Uninstall has to reach them, or upgrading
+    // leaves an orphan that looks like enforcement.
+    const dir = workspace();
+    const legacy = path.join(dir, LEGACY_PROJECT_DIR);
+    fs.mkdirSync(legacy, { recursive: true });
+    for (const name of ["TaskStart", "PreToolUse", "PostToolUse"]) {
+      fs.writeFileSync(path.join(legacy, name), `#!/usr/bin/env node\n// distilling-knowledge-into-skills\n`);
+    }
+    execFileSync("node", [path.join(dir, SKILL_REL, "scripts", "install-hooks.mjs"), "--root", ".", "--uninstall", "--apply"],
+      { cwd: dir, stdio: "ignore" });
+    equal(fs.readdirSync(legacy), []);
   });
 });

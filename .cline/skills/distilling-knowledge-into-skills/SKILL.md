@@ -293,6 +293,7 @@ node scripts/checkpoint.mjs --pending --stage R0             # what is left to d
 node scripts/check-store.mjs --profile strict --verify       # every gate, digests included
 node scripts/certify.mjs                                     # counts and shortfalls
 node scripts/skill-lint.mjs --path <compiled-skill>          # will Cline load it
+node scripts/doctor.mjs                                      # why it is not loading
 node scripts/install-hooks.mjs --cline --apply               # make it refuse
 node scripts/hooks-lint.mjs                                  # check the hooks statically
 ```

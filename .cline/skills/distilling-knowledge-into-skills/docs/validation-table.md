@@ -41,6 +41,8 @@ requirement belongs in the table below rather than in prose asking politely.
 | Rule construction | every cluster has an anti-pattern | script | targeted probe issued |
 | Compilation | every rule resolves to evidence | `check-store.mjs` | rule rejected |
 | Compilation | the package Cline will actually load: name matches directory, description within 1024, body within budget, every linked file present | `skill-lint.mjs` | build fails |
+| Compilation | frontmatter survives a real YAML parser, not only a line splitter | `skill-lint.mjs` | build fails; a colon and a space is a skill that never loads |
+| Install | the skill is where Cline looks, loadable, and not shadowed | `doctor.mjs` | reported with the file and the fix; writes nothing |
 | Cline hooks | file-based contract: location, name, executability, stdin, `cancel`, exit 2 | `hooks-lint.mjs` | build fails |
 | Re-entry | recorded prompt hash matches the prompt on disk | `checkpoint.mjs` | target returns to pending, at chunk grain |
 | Status | unit status derived from claims and probes | `sync-corpus.mjs` | corrected; never accepted as written |
