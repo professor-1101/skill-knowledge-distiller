@@ -224,7 +224,7 @@ acknowledged ambiguity, because nothing downstream can tell the difference.
 
 ## What is verified about the checks themselves
 
-`node tests/run-tests.mjs` — 140 tests in eleven categories: unit, negative,
+`node tests/run-tests.mjs` — 148 tests in eleven categories: unit, negative,
 edge, integrity, determinism, derivation, regression, end-to-end, resume,
 R-gate coverage, and the two contract lints — hooks and the skill package
 itself. Most are negative, and each is either a defect above or a constraint

@@ -16,7 +16,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, it, assert, equal, includes } from "./harness.mjs";
-import { lintSkill, estimateTokens, splitFrontmatter, SKILL_CONTRACT } from "../scripts/skill-lint.mjs";
+import { lintSkill, estimateTokens, splitFrontmatter, plainScalarProblem, SKILL_CONTRACT } from "../scripts/skill-lint.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const cleanup = [];
@@ -30,7 +30,7 @@ function skill(name, { frontmatter, body = "# Body\n\nSome instructions.\n", fil
   fs.mkdirSync(dir, { recursive: true });
   const fm =
     frontmatter === undefined
-      ? `name: ${name}\ndescription: ${"Do a specific thing with named artifacts. ".repeat(3)}\n`
+      ? `name: ${name}\ndescription: ${"Do a specific thing with named artifacts. ".repeat(3).trim()}\n`
       : frontmatter;
   fs.writeFileSync(path.join(dir, "SKILL.md"), fm === null ? body : `---\n${fm}---\n\n${body}`);
   for (const [rel, content] of Object.entries(files)) {
@@ -143,6 +143,71 @@ describe("skill-lint · what stops a skill from loading", () => {
     fs.writeFileSync(path.join(dir, "SKILL.md"),
       "---\nname: my-skill\ndescription: A sufficiently long and specific description of the work.\n---\n\n# Body\n");
     includes(lintSkill(dir).notes.join("\n"), "discovery roots");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The frontmatter has to survive a real YAML parser, not just a line splitter.
+//
+// This group exists because the skill shipped with a description reading
+// "...evidence-backed skill: ingesting and chunking the book...". A colon
+// followed by a space opens a nested mapping, so every YAML parser stops with
+// "mapping values are not allowed here" and Cline loaded nothing. The lint
+// took the first colon on the line, found name and description, and reported
+// conformance — a check that was confidently wrong about the one thing it
+// existed to verify.
+describe("skill-lint · frontmatter a YAML parser can actually read", () => {
+  const withDescription = (text) =>
+    lintSkill(skill("yaml-case", { frontmatter: `name: yaml-case\ndescription: ${text}\n` }));
+
+  it("rejects the exact description that shipped and could not load", () => {
+    const { errors } = withDescription(
+      "Extract expert knowledge from an EPUB into a validated, evidence-backed skill: ingesting and chunking the book."
+    );
+    includes(errors.join("\n"), "contains ': '");
+    includes(errors.join("\n"), "the skill never loads");
+  });
+
+  it("accepts the same sentence once the colon is gone", () => {
+    equal(
+      withDescription(
+        "Extract expert knowledge from an EPUB into a validated, evidence-backed skill - ingest and chunk the book."
+      ).errors,
+      []
+    );
+  });
+
+  it("accepts a colon that is not followed by whitespace", () => {
+    // `ratio:value` and clock times are legal in a plain scalar. Flagging them
+    // would push authors to quote everything, which is its own kind of noise.
+    equal(withDescription("Parse timestamps like 09:30 and ratios like 3:1 from a log file.").errors, []);
+  });
+
+  it("accepts a colon inside a properly quoted value", () => {
+    const dir = skill("quoted-case", {
+      frontmatter: `name: quoted-case\ndescription: "Do a thing: and then another thing, at some length."\n`,
+    });
+    equal(lintSkill(dir).errors, []);
+  });
+
+  it("rejects a value that starts with a YAML indicator character", () => {
+    includes(withDescription("- a description that begins with a list marker").errors.join("\n"), "indicator character");
+  });
+
+  it("rejects a value carrying an inline comment marker", () => {
+    includes(withDescription("Do a thing #and lose everything after this").errors.join("\n"), "YAML comment");
+  });
+
+  it("names the offending line, so the fix is not a hunt", () => {
+    includes(withDescription("Do a thing: and break").errors.join("\n"), "line 2, 'description'");
+  });
+
+  it("plainScalarProblem passes what is safe and fails what is not", () => {
+    equal(plainScalarProblem("A perfectly ordinary description, with commas."), null);
+    equal(plainScalarProblem(""), null);
+    assert(plainScalarProblem("bad: here"), "colon-space must fail");
+    assert(plainScalarProblem("*anchor reference"), "indicator must fail");
+    assert(plainScalarProblem("trailing space "), "trailing whitespace must fail");
   });
 });
 

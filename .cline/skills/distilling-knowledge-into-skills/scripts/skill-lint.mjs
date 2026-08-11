@@ -86,9 +86,43 @@ export function splitFrontmatter(source) {
 }
 
 /**
+ * Whether an unquoted YAML value is a legal plain scalar.
+ *
+ * This is the check whose absence let a skill ship that no YAML parser could
+ * read. A plain scalar may not contain `: ` — a colon followed by space opens
+ * a nested mapping, and a real parser stops with "mapping values are not
+ * allowed here" while a naive line splitter takes the first colon and reports
+ * everything as fine. Same for ` #`, which starts a comment, and for the
+ * indicator characters that mean something structural in first position.
+ *
+ * Returns null when the value is safe, or the reason it is not.
+ */
+export function plainScalarProblem(value) {
+  if (!value) return null;
+  if (/:\s/.test(value)) {
+    const at = value.search(/:\s/);
+    return `contains ': ' near "${value.slice(Math.max(0, at - 30), at + 12)}". In an unquoted ` +
+      `YAML value a colon followed by a space opens a nested mapping, so the whole file fails ` +
+      `to parse and the skill never loads. Use a dash or a comma, or quote the value`;
+  }
+  if (/\s#/.test(value)) {
+    return `contains ' #', which starts a YAML comment and silently truncates the value`;
+  }
+  const first = value[0];
+  if ("-?[]{},&*!|>%@`".includes(first)) {
+    return `starts with '${first}', a YAML indicator character. Quote the value or reword it`;
+  }
+  if (/[:\s]$/.test(value)) return `ends with a colon or trailing space`;
+  return null;
+}
+
+/**
  * The frontmatter Cline reads is two scalar fields. This parses exactly that
  * shape and reports anything else rather than silently accepting it: a nested
  * structure here is a sign the author expected a field Cline does not read.
+ *
+ * Parsing leniently and validating strictly is deliberate. A tolerant parser
+ * that never complains is how a broken file gets a clean report.
  */
 export function parseFrontmatter(text) {
   const fields = {};
@@ -102,9 +136,16 @@ export function parseFrontmatter(text) {
       problems.push(`line ${i + 1} is not a 'key: value' pair: ${line.trim().slice(0, 60)}`);
       continue;
     }
-    let value = m[2];
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
+    const raw = m[2];
+    let value = raw;
+    const quoted =
+      (raw.startsWith('"') && raw.endsWith('"') && raw.length > 1) ||
+      (raw.startsWith("'") && raw.endsWith("'") && raw.length > 1);
+    if (quoted) {
+      value = raw.slice(1, -1);
+    } else {
+      const bad = plainScalarProblem(raw);
+      if (bad) problems.push(`line ${i + 1}, '${m[1]}' ${bad}`);
     }
     fields[m[1]] = value;
   }
