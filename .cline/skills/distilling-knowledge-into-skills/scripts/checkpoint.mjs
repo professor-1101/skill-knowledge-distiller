@@ -1,0 +1,197 @@
+#!/usr/bin/env node
+// checkpoint.mjs — resumability, and the rule that makes re-running safe.
+//
+// A book does not fit in one session. Work stops, and starts again days later,
+// possibly with a different model. The requirement is that the second session
+// can tell exactly what is already done without being told, and that nothing
+// it does corrupts what the first one produced.
+//
+// A stage is complete for a chunk when all three hold:
+//   1. a checkpoint row says so
+//   2. the output file still exists
+//   3. the recorded prompt hash matches the prompt file on disk today
+//
+// The third condition is the whole design. Editing `extract.md` mid-project
+// invalidates every claim produced under the old wording — automatically, by
+// hash, rather than by somebody remembering. Work returns to pending and
+// re-runs. Without it, a store slowly becomes a mixture of outputs from
+// procedures that no longer exist, and nothing can tell which is which.
+//
+// `model_id` is recorded and **never invalidates**. Artifacts are data, and
+// their evidence chains verify independently of who produced them; treating a
+// model change as invalidating would make the store unresumable, which is the
+// opposite of what is wanted. It is recorded so an audit can segment by it if
+// quality turns out to vary.
+//
+//   node checkpoint.mjs --record --unit U --stage R0 --prompt prompts/extract.md --output claims/x.jsonl
+//   node checkpoint.mjs --status [--stage R0]
+//   node checkpoint.mjs --pending --stage R0
+//
+// Exit 0 always. This reports state; the gates elsewhere decide.
+
+import fs from "node:fs";
+import path from "node:path";
+import { readJsonl, appendJsonl, nowIso, parseArgs } from "./lib/jsonl.mjs";
+import { sha256 } from "./lib/evidence.mjs";
+
+const FILE = "checkpoints.jsonl";
+
+function fileHash(file) {
+  return fs.existsSync(file) ? sha256(fs.readFileSync(file)) : null;
+}
+
+/**
+ * The current state of every (unit, chunk, stage) triple. Later rows win, so the log
+ * stays append-only: correcting a checkpoint means appending a newer one, and
+ * the history of what was believed when is never destroyed.
+ */
+function currentState(root) {
+  const rows = readJsonl(path.join(root, FILE));
+  const state = new Map();
+  // A JSON tuple, not concatenated text: a unit id containing a space would
+  // otherwise collide with a different unit, and the collision would be
+  // invisible — two pieces of work quietly sharing one status.
+  for (const r of rows) state.set(JSON.stringify([r.unit, r.chunk ?? null, r.stage]), r);
+  return state;
+}
+
+function evaluate(root, row) {
+  if (!row) return { status: "pending", why: "no checkpoint recorded" };
+  if (row.output && !fs.existsSync(path.join(root, row.output))) {
+    return { status: "pending", why: `output ${row.output} is gone` };
+  }
+  if (row.prompt) {
+    const now = fileHash(path.join(root, row.prompt));
+    if (!now) return { status: "pending", why: `prompt ${row.prompt} is missing` };
+    if (now !== row.prompt_hash) {
+      return {
+        status: "stale",
+        why: `${row.prompt} changed since this ran — the procedure that produced this output no longer exists`,
+      };
+    }
+  }
+  return { status: "complete", why: "" };
+}
+
+function record(root, args) {
+  for (const req of ["unit", "stage"]) {
+    if (!args[req]) {
+      process.stderr.write(`BLOCKED: --record needs --${req}\n`);
+      process.exit(2);
+    }
+  }
+  const promptHash = args.prompt ? fileHash(path.join(root, args.prompt)) : null;
+  if (args.prompt && !promptHash) {
+    process.stderr.write(`BLOCKED: prompt '${args.prompt}' does not exist — nothing to hash\n`);
+    process.exit(2);
+  }
+  const outputPath = args.output ? path.join(root, args.output) : null;
+  if (outputPath && !fs.existsSync(outputPath)) {
+    process.stderr.write(
+      `BLOCKED: output '${args.output}' does not exist. A checkpoint claiming an ` +
+        `output that is not there is exactly the status-outruns-artifacts failure ` +
+        `this log exists to prevent.\n`
+    );
+    process.exit(2);
+  }
+
+  const row = {
+    unit: String(args.unit),
+    chunk: args.chunk ? String(args.chunk) : null,
+    stage: String(args.stage),
+    prompt: args.prompt ? String(args.prompt) : null,
+    prompt_hash: promptHash,
+    output: args.output ? String(args.output) : null,
+    output_hash: outputPath ? sha256(fs.readFileSync(outputPath)) : null,
+    model_id: args.model ? String(args.model) : null,
+    at: nowIso(),
+  };
+  appendJsonl(path.join(root, FILE), [row]);
+  process.stdout.write(`recorded          ${row.unit}${row.chunk ? "/" + row.chunk : ""} ${row.stage}\n`);
+}
+
+function report(root, args, pendingOnly) {
+  const corpus = readJsonl(path.join(root, "corpus.jsonl"));
+  const state = currentState(root);
+  const stages = args.stage ? [String(args.stage)] : [...new Set([...state.values()].map((r) => r.stage))].sort();
+
+  if (!stages.length) {
+    process.stdout.write("no checkpoints recorded yet — every unit is pending\n");
+    return;
+  }
+
+  // Work is dispatched at chunk grain, so the report has to see chunks. A unit
+  // with no chunks is reported at unit grain, which is the pre-chunking state.
+  const targets = [];
+  for (const u of corpus) {
+    if (!u.unit) continue;
+    const chunks = chunksFor(root, u.unit);
+    if (chunks.length) for (const c of chunks) targets.push({ unit: u.unit, chunk: c });
+    else targets.push({ unit: u.unit, chunk: null });
+  }
+
+  for (const stage of stages) {
+    const lines = [];
+    let complete = 0;
+    let stale = 0;
+    let pending = 0;
+    for (const t of targets) {
+      const row = state.get(JSON.stringify([t.unit, t.chunk, stage]));
+      const { status, why } = evaluate(root, row);
+      if (status === "complete") complete++;
+      else if (status === "stale") stale++;
+      else pending++;
+      if (status !== "complete") lines.push(`  ${status.padEnd(9)}${t.chunk || t.unit}   ${why}`);
+    }
+    process.stdout.write(
+      `\n${stage}: ${complete} complete · ${stale} stale · ${pending} pending  ` +
+        `(of ${targets.length} target(s) across ${corpus.length} unit(s))\n`
+    );
+    if (pendingOnly || args.verbose) {
+      for (const l of lines.slice(0, 60)) process.stdout.write(l + "\n");
+      if (lines.length > 60) process.stdout.write(`  ... ${lines.length - 60} more\n`);
+    }
+    if (stale) {
+      process.stdout.write(
+        `  ${stale} target(s) are stale because a prompt changed. Re-run them; the\n` +
+          `  response cache means this costs model tokens and zero source reads.\n`
+      );
+    }
+  }
+}
+
+function main() {
+  const args = parseArgs(process.argv.slice(2), { root: "." });
+  if (args.record) record(args.root, args);
+  else if (args.pending) report(args.root, args, true);
+  else if (args.status) report(args.root, args, false);
+  else {
+    process.stderr.write(
+      "usage: checkpoint.mjs --record --unit U --stage S [--chunk C] [--prompt P] [--output O] [--model M]\n" +
+        "       checkpoint.mjs --status [--stage S] [--verbose]\n" +
+        "       checkpoint.mjs --pending --stage S\n"
+    );
+    process.exit(2);
+  }
+}
+
+main();
+
+/** The chunks belonging to a unit, which is the grain work is dispatched at. */
+function chunksFor(root, unit) {
+  if (!chunksFor._cache) {
+    const map = new Map();
+    const base = path.join(root, "sources", "converted");
+    if (fs.existsSync(base)) {
+      for (const doc of fs.readdirSync(base).sort()) {
+        for (const c of readJsonl(path.join(base, doc, "chunks.jsonl"))) {
+          if (!c.unit) continue;
+          if (!map.has(c.unit)) map.set(c.unit, []);
+          map.get(c.unit).push(c.id);
+        }
+      }
+    }
+    chunksFor._cache = map;
+  }
+  return chunksFor._cache.get(unit) || [];
+}

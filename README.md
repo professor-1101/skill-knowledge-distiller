@@ -1,6 +1,66 @@
----
-name: skill-knowledge-distiller
-description: Turn a body of knowledge into a working agent skill. Use when the user wants documentation, a codebase, an API, a transcript, a runbook, a spec or hard-won session experience captured as a reusable SKILL.md - including phrasings like "make this a skill", "turn these docs into a skill", "distill this repo", "capture how we do X", "write a skill for this library", or when a workflow has just been worked out by hand and should not have to be worked out again. Covers scoping the source, deciding what is worth keeping, splitting the body from docs/ and scripts/, writing a description that actually triggers, and checking the result against the format's constraints. Does not run git operations, install skills, or design non-skill artifacts such as rules, hooks and plugins.
+# skill-knowledge-distiller
+
+A Cline skill that turns a book into a validated, evidence-backed skill — with
+every normative statement traceable to a source location, and the
+incompleteness measured rather than hidden.
+
+The skill itself lives in
+[`.cline/skills/distilling-knowledge-into-skills/`](.cline/skills/distilling-knowledge-into-skills/SKILL.md).
+EPUB is the only supported input; [docs/epub.md](.cline/skills/distilling-knowledge-into-skills/docs/epub.md)
+explains why that is a structural choice rather than a convenience.
+
+## Install
+
+```bash
+git clone https://github.com/professor-1101/skill-knowledge-distiller.git
+cd skill-knowledge-distiller
+node install.mjs
+```
+
+Then start a new session — skills are read at startup.
+
+| Command | Does |
+|---|---|
+| `node install.mjs` | install or update for every project |
+| `node install.mjs --project` | install into `./.cline/skills` so a team shares it via git |
+| `node install.mjs --check` | what is installed and what you changed; writes nothing |
+| `node install.mjs --force` | update anyway, discarding local edits |
+| `node install.mjs --uninstall` | remove this skill and nothing else |
+
+An update **refuses when the installed copy has been edited**, naming the
+files, and writes nothing when it refuses. Overwriting somebody's changes is
+not a decision an installer should make on their behalf.
+
+Cline documents two global skill locations and both are official; the installer
+writes the first and tells you the second. Note that **global skills take
+precedence over project ones** — the reverse of rules — so a stale personal
+copy silently overrides the team's. `--project` warns when that is the case.
+
+## Using it
+
+```bash
+S=~/.cline/skills/distilling-knowledge-into-skills
+
+node $S/tests/run-tests.mjs                          # 118 tests, twelve categories
+node $S/scripts/extractor-check.mjs --record         # qualify the extractor
+node $S/scripts/ingest.mjs --source book.epub --slug my-book
+node $S/scripts/enumerate.mjs --slug my-book         # the denominator, from the book's own nav
+node $S/scripts/chunk.mjs --slug my-book
+node $S/scripts/check-store.mjs --profile strict --verify
+node $S/scripts/certify.mjs
+```
+
+Enforcement is separate and opt-in:
+
+```bash
+node $S/scripts/install-hooks.mjs --cline --apply    # git pre-commit + Cline hooks
+node $S/scripts/hooks-lint.mjs                       # check the hooks statically
+node $S/scripts/install-ci.mjs --apply               # the tier --no-verify cannot reach
+```
+
+Stock Node ≥18, zero dependencies — a skill directory copied into
+`~/.cline/skills/` never gets an `npm install`.
+
 ---
 
 # Skill Knowledge Distiller
